@@ -1,0 +1,111 @@
+
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SKINMATE</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            <a href="/"><img src="{{ url_for('static', filename='images/skinmate_logo.png') }}" alt="SKINMATE 로고"></a>
+        </div>
+        <nav class="main-menu">
+            <ul>
+                <li><a href="#">ABOUT</a></li>
+                <li><a href="#">기술 소개</a></li>
+                <li><a href="#">1:1 추천</a></li>
+                <li><a href="#">AI 고민상담</a></li>
+                <li><a href="#">커뮤니티</a></li>
+            </ul>
+        </nav>
+        <nav class="user-menu">
+            <ul>
+                <li><a href="#"><img src="{{ url_for('static', filename='images/user_icon.svg') }}" alt="마이페이지"></a></li>
+                <li><a href="#"><img src="{{ url_for('static', filename='images/heart_icon.svg') }}" alt="찜"></a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <div class="analysis-container">
+            <div class="left-panel">
+                <h2>피부 이미지 분석</h2>
+                <div class="image-preview-container">
+                    <span class="placeholder-text">이미지를 선택해주세요</span>
+                    <img id="image-preview" src="#" alt="업로드된 이미지 미리보기">
+                </div>
+                
+                <form id="upload-form" action="/analyze" method="post" enctype="multipart/form-data">
+                    <div class="button-group">
+                        <label for="file-upload" class="file-input-label">파일 선택</label>
+                        <input type="file" id="file-upload" name="image" accept="image/*" required>
+                        <button type="submit" class="analyze-button">분석하기</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="right-panel">
+                <h2>SKINMATE AI 피부 진단 시작 전 주의사항</h2>
+                <ul>
+                    <li>정확한 분석을 위해, 화장이나 선크림을 지운 맨 얼굴을 촬영해주세요.</li>
+                    <li>정면을 바라보고, 얼굴 전체가 명확하게 나오도록 촬영해주세요.</li>
+                    <li>흔들리지 않고 선명한 사진일수록 분석 정확도가 높아집니다.</li>
+                    <li>안경, 마스크, 모자 등 얼굴을 가리는 액세서리는 모두 제거해주세요.</li>
+                    <li>밝고 균일한 조명 아래에서 촬영하는 것을 권장합니다. 그림자가 지지 않도록 주의하세요.</li>
+                    <li>본 분석 결과는 참고용이며, 전문적인 의학적 진단을 대체할 수 없습니다.</li>
+                </ul>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 SKINMATE. All Rights Reserved.</p>
+    </footer>
+
+    <script>
+        // 파일 선택 시 이미지 미리보기 기능
+        const fileInput = document.getElementById('file-upload');
+        const imagePreview = document.getElementById('image-preview');
+        const placeholderText = document.querySelector('.placeholder-text');
+
+        fileInput.addEventListener('change', function() {
+            const file = this.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imagePreview.src = e.target.result;
+                    imagePreview.style.display = 'block';
+                    placeholderText.style.display = 'none';
+                }
+                reader.readAsDataURL(file);
+            } else {
+                imagePreview.style.display = 'none';
+                placeholderText.style.display = 'block';
+            }
+        });
+
+        // 분석 후 결과 표시 (app.py에서 템플릿 렌더링 시 전달된 값으로 처리)
+        // 만약 score 값이 존재하면 결과 섹션을 보여줍니다.
+        const score = "{{ score }}"; // Flask에서 전달된 점수
+        if (score && score !== "None") {
+            const resultSection = document.getElementById('result');
+            const scoreElement = document.getElementById('score');
+            scoreElement.innerText = `피부 탄력 점수: ${parseFloat(score).toFixed(2)} / 100`;
+            resultSection.style.display = 'block';
+
+            // 결과가 있을 경우, 미리보기 이미지도 표시
+            const uploadedImageSrc = "{{ uploaded_image }}";
+            if(uploadedImageSrc) {
+                imagePreview.src = uploadedImageSrc;
+                imagePreview.style.display = 'block';
+                placeholderText.style.display = 'none';
+            }
+        }
+    </script>
+
+</body>
+</html>
