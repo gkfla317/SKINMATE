@@ -5,9 +5,11 @@ import json
 import shutil
 import subprocess
 import click
-from flask import Flask, render_template, request, redirect, url_for, flash, session, g
+from flask import Flask, render_template, request, redirect, url_for, flash, session, g, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+
+from datetime import datetime, timedelta
 
 # --- Flask 애플리케이션 설정 ---
 app = Flask(__name__)
@@ -36,9 +38,9 @@ def get_face_icon_for_score(score):
         return 'face4.png'
     elif 50 <= score <= 60:
         return 'face3.png'
-    elif 61 <= score <= 80:
+    elif 61 <= score <= 90:
         return 'face2.png'
-    elif 81 <= score <= 100:
+    elif 91 <= score <= 100:
         return 'face1.png'
     else:
         return 'default-face.png' # For scores outside 0-100 range
@@ -155,7 +157,7 @@ def generate_recommendations(scores, username):
     elif '탄력' in top_concerns_names:
         intro_message = "피부에 탄력이 떨어져 탄탄함이 부족합니다."
     elif '주름' in top_concerns_names:
-        intro_message = "잔주름과 굵은 주름이 도드라지고 있습니다."
+        intro_message = "잔주름과 굵은 주름이 깊어지고 있습니다."
 
     # Determine the specific product recommendation
     product_recommendation = ""
@@ -185,13 +187,14 @@ def generate_recommendations(scores, username):
 def generate_result_summary(username, main_score, skin_type, top_concerns_names):
     """결과 페이지에 표시될 요약 텍스트를 생성합니다."""
     main_score_int = round(main_score)
-    summary = f"{username}님의 피부 종합 점수는 {main_score_int}점입니다.<br>"
+    summary = f"{username}님, 오늘 피부 종합 점수는 {main_score_int}점입니다.<br>"
     if top_concerns_names:
         concerns_str = "', '".join(top_concerns_names)
-        summary += f"현재 피부는 '{skin_type}' 타입이며, '{concerns_str}'에 대한 집중 관리가 필요합니다.<br>"
+        summary += f"진단 결과, 현재 피부는 '{skin_type}' 타입으로 판단되며, '{concerns_str}'에 대한 집중 케어가 필요합니다.<br>{username}님의 피부 고민을 해결해 줄 추천 제품을 확인해 보세요!"
     else:
-        summary += f"현재 피부는 '{skin_type}' 타입이며, 모든 항목이 양호한 상태입니다.<br>"
-    summary += "'추천 상품 보러가기' 버튼을 통해 나에게 맞는 화장품을 찾아보세요."
+        summary += f"현재 피부는 '{skin_type}' 타입이며, 전반적으로 균형 잡힌 건강한 피부 상태입니다.<br>피부 관리를 정말 잘하고 계시네요!<br>지금의 피부 컨디션을 유지하기 위해, 피부 장벽을 보호하고 수분과 영양을 적절히 공급해주는 제품을 꾸준히 사용하시는 것을 권장해드립니다."
+    # summary += "'추천 상품 보러가기' 버튼을 통해 나에게 맞는 화장품을 찾아보세요."
+    
     return summary
 
 # --- 웹페이지 라우팅 ---
@@ -206,14 +209,80 @@ def history():
     if 'user_id' not in session:
         flash('기록을 보려면 먼저 로그인해주세요.')
         return redirect(url_for('login'))
-    
+
     db = get_db()
-    analyses = db.execute(
+    # Fetch all analyses for the detailed list view
+    all_analyses = db.execute(
         'SELECT * FROM analyses WHERE user_id = ? ORDER BY analysis_timestamp DESC',
         (session['user_id'],)
     ).fetchall()
     
-    return render_template('history.html', analyses=analyses)
+    return render_template('history.html', analyses=all_analyses)
+
+@app.route('/api/history')
+def api_history():
+    if 'user_id' not in session:
+        return jsonify({'error': 'User not logged in'}), 401
+
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+
+    try:
+        end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+    except (ValueError, TypeError):
+        end_date = datetime.now().replace(hour=23, minute=59, second=59)
+
+    try:
+        start_date = datetime.strptime(start_date_str, '%Y-%m-%d').replace(hour=0, minute=0, second=0)
+    except (ValueError, TypeError):
+        start_date = end_date - timedelta(days=6)
+        start_date = start_date.replace(hour=0, minute=0, second=0)
+
+    if start_date > end_date:
+        return jsonify({'error': 'Start date cannot be after end date.'}), 400
+
+    db = get_db()
+    analyses = db.execute(
+        'SELECT analysis_timestamp, scores_json FROM analyses WHERE user_id = ? AND analysis_timestamp BETWEEN ? AND ? ORDER BY analysis_timestamp ASC',
+        (session['user_id'], start_date, end_date)
+    ).fetchall()
+
+    # Aggregate data for the graph, ensuring all days in the range are present
+    daily_scores = {}
+    current_date = start_date.date()
+    while current_date <= end_date.date():
+        date_key = current_date.strftime('%Y-%m-%d')
+        daily_scores[date_key] = {'moisture': [], 'elasticity': [], 'wrinkle': []}
+        current_date += timedelta(days=1)
+
+    for analysis in analyses:
+        analysis_date_key = analysis['analysis_timestamp'].strftime('%Y-%m-%d')
+        if analysis_date_key in daily_scores:
+            try:
+                scores = json.loads(analysis['scores_json'])
+                daily_scores[analysis_date_key]['moisture'].append(scores.get('moisture', 0))
+                daily_scores[analysis_date_key]['elasticity'].append(scores.get('elasticity', 0))
+                daily_scores[analysis_date_key]['wrinkle'].append(scores.get('wrinkle', 65.0)) # Default wrinkle score
+            except (json.JSONDecodeError, TypeError):
+                continue # Skip if scores_json is invalid
+
+    graph_dates = []
+    graph_moisture = []
+    graph_elasticity = []
+    graph_wrinkle = []
+
+    for date_key, scores_list in sorted(daily_scores.items()):
+        graph_dates.append(datetime.strptime(date_key, '%Y-%m-%d').strftime('%m-%d'))
+        graph_moisture.append(round(sum(scores_list['moisture']) / len(scores_list['moisture']), 1) if scores_list['moisture'] else 0)
+        graph_elasticity.append(round(sum(scores_list['elasticity']) / len(scores_list['elasticity']), 1) if scores_list['elasticity'] else 0)
+        graph_wrinkle.append(round(sum(scores_list['wrinkle']) / len(scores_list['wrinkle']), 1) if scores_list['wrinkle'] else 0)
+
+    return jsonify(
+        graph_dates=graph_dates,
+        graph_moisture=graph_moisture,
+        graph_elasticity=graph_elasticity,
+        graph_wrinkle=graph_wrinkle
+    )
 
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
