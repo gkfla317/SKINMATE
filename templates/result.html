@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}분석 결과 - SKINMATE{% endblock %}
+
+{% block head %}
+<style>
+    .chart-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+    }
+    .chart-item {
+        flex: 1;
+        padding: 10px;
+    }
+    .flex-spacer {
+        flex: 0.5; /* Adjust this to control the shift */
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="all-result-container">
+    <h2>AI 피부 분석 결과</h2>
+
+    <div class="chart-container">
+        <div id="gauge-chart" class="chart-item"></div>
+        <div id="bar-chart" class="chart-item"></div>
+        <div class="flex-spacer"></div>
+    </div>
+
+    <div class="result-details-box">
+        <div class="result-description">
+             <p>{{ result_summary | safe }}</p>
+        </div>
+        <div class="button-group">
+            <a href="{{ url_for('analysis') }}" class="result-button-retry">다시 테스트하기</a>
+            <a href="{{ url_for('recommendations') }}" class="result-button-recommend">추천 상품 보러가기</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script>
+    // Data from Flask
+    var mainScore = {{ main_score | round }};
+    var barData = {
+        categories: ['수분', '탄력', '주름'],
+        series: [
+            {
+                name: '점수',
+                data: [
+                    {{ scores.moisture | default(0, true) }},
+                    {{ scores.elasticity | default(0, true) }},
+                    {{ scores.wrinkle | default(0, true) }}
+                ]
+            },
+            {
+                name: '배경',
+                data: [
+                    100 - {{ scores.moisture | default(0, true) }},
+                    100 - {{ scores.elasticity | default(0, true) }},
+                    100 - {{ scores.wrinkle | default(0, true) }}
+                ]
+            }
+        ]
+    };
+
+    // Gauge Chart
+    var gaugeOptions = {
+        series: [mainScore],
+        chart: {
+            height: 350,
+            type: 'radialBar',
+        },
+        plotOptions: {
+            radialBar: {
+                startAngle: -135,
+                endAngle: 135,
+                hollow: {
+                    margin: 0,
+                    size: '70%',
+                    background: '#fff',
+                },
+                track: {
+                    background: '#f2f2f2',
+                    strokeWidth: '67%',
+                },
+                dataLabels: {
+                    name: {
+                        show: true,
+                        offsetY: -25,
+                        fontSize: '16px',
+                        color: '#888',
+                        formatter: function(val) { return "Total Score" }
+                    },
+                    value: {
+                        offsetY: 30,
+                        fontSize: '4.2rem',
+                        color: '#1f1f1fff',
+                        formatter: function (val) {
+                            return val.toFixed(0);
+                        }
+                    }
+                }
+            }
+        },
+        labels: ['종합 점수'],
+        colors: ['#D8AAAA'],
+        fill: {
+            type: 'gradient',
+            gradient: {
+                shade: 'dark',
+                type: 'horizontal',
+                shadeIntensity: 0.5,
+                gradientToColors: ['#C79999'],
+                inverseColors: true,
+                opacityFrom: 1,
+                opacityTo: 1,
+                stops: [0, 100]
+            }
+        },
+        stroke: {
+            lineCap: 'round'
+        },
+    };
+
+    var gaugeChart = new ApexCharts(document.querySelector("#gauge-chart"), gaugeOptions);
+    gaugeChart.render();
+
+    // Bar Chart
+    var barOptions = {
+        series: barData.series,
+        chart: {
+            type: 'bar',
+            height: 320,
+            stacked: true,
+            toolbar: { show: false },
+            animations: { enabled: false },
+            stroke: { width: 0 }
+        },
+        states: {
+            hover: { filter: { type: 'none' } },
+            active: { filter: { type: 'none' } }
+        },
+        plotOptions: {
+            bar: {
+                horizontal: true,
+                borderRadius: 8,
+                barHeight: '35%'
+            }
+        },
+        dataLabels: {
+            enabled: false
+        },
+        xaxis: {
+            categories: barData.categories,
+            labels: { show: false },
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+            max: 100
+        },
+        yaxis: {
+            show: true,
+            labels: {
+                show: true,
+                style: {
+                    colors: ['#373d3f'],
+                    fontSize: '14px'
+                }
+            }
+        },
+        grid: {
+            show: false,
+            padding: {
+                left: 40,
+                right: 30
+            }
+        },
+        tooltip: {
+            enabled: true,
+            enabledOnSeries: [0],
+            custom: function({ series, seriesIndex, dataPointIndex, w }) {
+                var val = series[seriesIndex][dataPointIndex];
+                return '<div style="padding: 5px 10px; background-color: #FFF; border: 1px solid #DDD; border-radius: 3px;">' +
+                       val + '점' +
+                       '</div>';
+            }
+        },
+        legend: {
+            show: false
+        },
+        colors: ['#D8AAAA', '#f0f0f0'],
+    };
+
+    var barChart = new ApexCharts(document.querySelector("#bar-chart"), barOptions);
+    barChart.render();
+</script>
+{% endblock %}

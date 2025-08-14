@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}분석 기록 - SKINMATE{% endblock %}
+
+{% block head %}
+    <style>
+        .history-container {
+            width: 80%;
+            max-width: 900px;
+            margin-top: 40px;
+            margin-bottom: 40px;
+        }
+        .history-item {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        .history-item img {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 8px;
+        }
+        .history-details {
+            flex-grow: 1;
+        }
+        .history-details h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .history-details p {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .timestamp {
+            font-size: 0.8rem;
+            color: #999;
+            margin-bottom: 10px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="history-container">
+    <h2>나의 분석 기록</h2>
+    {% if analyses %}
+        {% for analysis in analyses %}
+        <div class="history-item">
+            {% if analysis.image_filename %}
+            <img src="{{ url_for('static', filename='uploads_temp/' + analysis.image_filename) }}" alt="분석 이미지">
+            {% endif %}
+            <div class="history-details">
+                <p class="timestamp">{{ analysis.analysis_timestamp.strftime('%Y년 %m월 %d일 %H:%M') }}</p>
+                <h3>피부 타입: <span style="color: #F66F6F;">{{ analysis.skin_type }}</span></h3>
+                <p><b>주요 고민:</b> 
+                    {% set concerns = analysis.concerns_json | fromjson %}
+                    {{ concerns | map(attribute='name') | join(', ') }}
+                </p>
+            </div>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p>아직 분석 기록이 없습니다. 지금 바로 피부 분석을 시작해보세요!</p>
+        <a href="{{ url_for('analysis') }}" class="result-button-recommend" style="margin-top:20px; text-decoration: none;">분석하러 가기</a>
+    {% endif %}
+</div>
+{% endblock %}
