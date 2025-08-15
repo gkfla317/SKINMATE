@@ -89,6 +89,7 @@ main {
     height: 100%; /* Add this */
     text-align: center;
     padding: 20px;
+    justify-content: center;
 }
 
 /* --- index.html 전용 스타일 (2단 레이아웃) --- */

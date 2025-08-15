@@ -42,8 +42,8 @@
                 <li><a href="#">기술 소개</a></li>
                 <li><a href="{{ url_for('recommendations') }}">1:1 추천</a></li>
                 <li><a href="#">AI 고민상담</a></li>
-                <li><a href="#">커뮤니티</a></li>
                 <li><a href="{{ url_for('history') }}">분석 기록</a></li>
+                <li><a href="{{ url_for('skin_diary') }}">피부 일지</a></li>
             </ul>
         </nav>
         <nav class="user-menu">
@@ -77,5 +77,15 @@
     </footer>
 
     {% block scripts %}{% endblock %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const flashMessages = document.querySelectorAll('.flash-messages .alert');
+            flashMessages.forEach(function(message) {
+                setTimeout(function() {
+                    message.style.display = 'none';
+                }, 2000); // 2 seconds
+            });
+        });
+    </script>
 </body>
 </html>

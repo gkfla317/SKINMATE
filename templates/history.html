@@ -4,49 +4,84 @@
 
 {% block head %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/history.css') }}">
+    <style>
+        body {
+            background-color: #e9ecef;
+        }
+        .title-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .edit-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 10px;
+        }
+        .edit-controls .left {
+            display: flex;
+            align-items: center;
+        }
+        .edit-controls .right {
+            display: flex;
+            align-items: center;
+        }
+        .edit-mode-item {
+            visibility: hidden;
+        }
+        .edit-mode-active .edit-mode-item {
+            visibility: visible;
+        }
+        .edit-mode-active .history-item .analysis-checkbox {
+            display: inline-block;
+        }
+        .history-item .analysis-checkbox {
+            display: none;
+        }
+    </style>
 {% endblock %}
 
 {% block content %}
 <div class="history-container">
-    <h2>My Skin Report</h2>
-
-    <!-- Date Picker Card -->
-    <div class="card date-picker-card">
-        <label for="start-date-picker">시작 날짜:</label>
-        <input type="date" id="start-date-picker">
-        <label for="end-date-picker">종료 날짜:</label>
-        <input type="date" id="end-date-picker">
-        <button id="fetch-chart-data-btn">조회</button>
-    </div>
-
-    <!-- Chart Card -->
-    <div class="card">
-        <div id="weekly-skin-chart"></div>
-    </div>
-
-    <div class="toggle-button-container">
-        <button id="toggle-analyses-btn">나의 전체 분석 기록 보기</button>
-    </div>
-
     <!-- Detailed Analyses Card -->
-    <div id="detailed-analyses-list" class="card" style="display:none;">
-        <h2>나의 분석 기록</h2>
-        {% if analyses %}
-            {% for analysis in analyses %}
-            <div class="history-item">
-                {% if analysis.image_filename %}
-                <img src="{{ url_for('static', filename='uploads_temp/' + analysis.image_filename) }}" alt="분석 이미지">
-                {% endif %}
-                <div class="history-details">
-                    <p class="timestamp">{{ analysis.analysis_timestamp.strftime('%Y년 %m월 %d일 %H:%M') }}</p>
-                    <h3>피부 타입: <span style="color: #F66F6F;">{{ analysis.skin_type }}</span></h3>
-                    <p><b>주요 고민:</b> 
-                        {% set concerns = analysis.concerns_json | fromjson %}
-                        {{ concerns | map(attribute='name') | join(', ') }}
-                    </p>
+    <div id="detailed-analyses-list" class="card">
+        <div class="title-container">
+            <h2>나의 분석 기록</h2>
+        </div>
+        <div class="edit-controls">
+            <div class="left">
+                <div class="edit-mode-item">
+                    <button type="button" id="select-all-button" class="select-all-button">전체 선택</button>
                 </div>
+                <form action="{{ url_for('delete_selected_analyses') }}" method="post" id="delete-selected-form" onsubmit="return confirm('정말로 선택한 기록을 삭제하시겠습니까?');" class="edit-mode-item" style="margin-left: 10px;">
+                    <button type="submit" class="delete-button">삭제</button>
+                </form>
             </div>
-            {% endfor %}
+            <div class="right">
+                <button type="button" id="edit-button" class="edit-button">편집</button>
+            </div>
+        </div>
+        
+        {% if analyses %}
+            <form id="analysis-list-form">
+                {% for analysis in analyses %}
+                <div class="history-item">
+                    <input type="checkbox" name="analysis_ids" value="{{ analysis.id }}" class="analysis-checkbox">
+                    {% if analysis.image_filename %}
+                    <img src="{{ url_for('static', filename='uploads_temp/' + analysis.image_filename) }}" alt="분석 이미지">
+                    {% endif %}
+                    <div class="history-details">
+                        <p class="timestamp">{{ analysis.analysis_timestamp.strftime('%Y년 %m월 %d일 %H:%M') }}</p>
+                        <h3>피부 타입: <span style="color: #F66F6F;">{{ analysis.skin_type }}</span></h3>
+                        <p><b>주요 고민:</b> 
+                            {% set concerns = analysis.concerns_json | fromjson %}
+                            {{ concerns | map(attribute='name') | join(', ') }}
+                        </p>
+                    </div>
+                </div>
+                {% endfor %}
+            </form>
         {% else %}
             <p>아직 분석 기록이 없습니다. 지금 바로 피부 분석을 시작해보세요!</p>
             <a href="{{ url_for('analysis') }}" class="result-button-recommend" style="margin-top:20px; text-decoration: none;">분석하러 가기</a>
@@ -56,139 +91,75 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- The script block remains the same as the last version -->
-<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var options = {
-            series: [
-                { name: '수분', data: [] },
-                { name: '탄력', data: [] },
-                { name: '주름', data: [] }
-            ],
-            chart: {
-                height: 350,
-                type: 'line',
-                zoom: { enabled: false },
-                toolbar: { show: false }
-            },
-            dataLabels: { enabled: false },
-            stroke: { curve: 'smooth', width: 3 },
-            title: { text: '기간별 피부 점수 변화', align: 'left', style: { fontSize: '18px', fontWeight: '600', color: '#333' } },
-            grid: {
-                borderColor: '#e7e7e7',
-                row: {
-                    colors: ['#f3f3f3', 'transparent'],
-                    opacity: 0.5
-                },
-            },
-            xaxis: {
-                categories: [],
-                title: { text: '날짜' }
-            },
-            yaxis: {
-                title: { text: '점수' },
-                min: 0,
-                max: 100
-            },
-            tooltip: {
-                y: {
-                    formatter: function (val) {
-                        return val.toFixed(1) + " 점"
-                    }
-                }
-            },
-            noData: {
-                text: '데이터를 불러오는 중입니다...'
+        const editButton = document.getElementById('edit-button');
+        const detailedAnalysesList = document.getElementById('detailed-analyses-list');
+        const deleteButtonForm = document.getElementById('delete-selected-form');
+        const analysisCheckboxes = document.querySelectorAll('.analysis-checkbox');
+        const selectAllButton = document.getElementById('select-all-button');
+        let allSelected = false;
+
+        function updateSelectAllButton() {
+            const allChecked = Array.from(analysisCheckboxes).every(checkbox => checkbox.checked);
+            if (allChecked && analysisCheckboxes.length > 0) {
+                selectAllButton.textContent = '선택 해제';
+                allSelected = true;
+            } else {
+                selectAllButton.textContent = '전체 선택';
+                allSelected = false;
             }
-        };
+        }
 
-        var chart = new ApexCharts(document.querySelector("#weekly-skin-chart"), options);
-        chart.render();
-
-        var startDatePicker = document.getElementById('start-date-picker');
-        var endDatePicker = document.getElementById('end-date-picker');
-        var fetchBtn = document.getElementById('fetch-chart-data-btn');
-
-        function updateChart(startDate, endDate) {
-            if (!startDate || !endDate) {
-                alert('시작 날짜와 종료 날짜를 모두 선택해주세요.');
-                return;
-            }
-            if (new Date(startDate) > new Date(endDate)) {
-                alert('시작 날짜는 종료 날짜보다 이전이어야 합니다.');
-                return;
-            }
-
-            chart.updateOptions({ noData: { text: '데이터를 불러오는 중입니다...' } });
-
-            fetch(`/api/history?start_date=${startDate}&end_date=${endDate}`)
-                .then(response => {
-                    if (!response.ok) throw new Error('Network response was not ok');
-                    return response.json();
-                })
-                .then(data => {
-                    if (data.error) throw new Error(data.error);
-                    
-                    if (data.graph_dates && data.graph_dates.length > 0) {
-                        chart.updateOptions({
-                            title: { text: `${startDate} ~ ${endDate} 피부 점수 변화` },
-                            xaxis: { categories: data.graph_dates },
-                            series: [
-                                { name: '수분', data: data.graph_moisture },
-                                { name: '탄력', data: data.graph_elasticity },
-                                { name: '주름', data: data.graph_wrinkle }
-                            ],
-                            noData: { text: '선택한 기간에 데이터가 없습니다.' }
-                        });
-                    } else {
-                         chart.updateOptions({
-                            title: { text: `${startDate} ~ ${endDate} 피부 점수 변화` },
-                            xaxis: { categories: [] },
-                            series: [ { name: '수분', data: [] }, { name: '탄력', data: [] }, { name: '주름', data: [] } ],
-                            noData: { text: '선택한 기간에 데이터가 없습니다.' }
-                        });
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching chart data:', error);
-                    chart.updateOptions({ noData: { text: '데이터를 불러오는데 실패했습니다.' } });
+        editButton.addEventListener('click', function () {
+            detailedAnalysesList.classList.toggle('edit-mode-active');
+            if (detailedAnalysesList.classList.contains('edit-mode-active')) {
+                this.textContent = '완료';
+            } else {
+                this.textContent = '편집';
+                // Uncheck all checkboxes and reset button text when exiting edit mode
+                analysisCheckboxes.forEach(checkbox => {
+                    checkbox.checked = false;
                 });
-        }
-
-        function formatDate(date) {
-            var yyyy = date.getFullYear();
-            var mm = String(date.getMonth() + 1).padStart(2, '0');
-            var dd = String(date.getDate()).padStart(2, '0');
-            return `${yyyy}-${mm}-${dd}`;
-        }
-
-        var today = new Date();
-        var sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 6);
-
-        var endDateString = formatDate(today);
-        var startDateString = formatDate(sevenDaysAgo);
-
-        startDatePicker.value = startDateString;
-        endDatePicker.value = endDateString;
-        
-        updateChart(startDateString, endDateString);
-
-        fetchBtn.addEventListener('click', function() {
-            updateChart(startDatePicker.value, endDatePicker.value);
+                updateSelectAllButton();
+            }
         });
 
-        var toggleBtn = document.getElementById('toggle-analyses-btn');
-        var detailedList = document.getElementById('detailed-analyses-list');
-        toggleBtn.addEventListener('click', function() {
-            if (detailedList.style.display === 'none') {
-                detailedList.style.display = 'block';
-                this.textContent = '간략히 보기';
-            } else {
-                detailedList.style.display = 'none';
-                this.textContent = '나의 전체 분석 기록 보기';
+        selectAllButton.addEventListener('click', function () {
+            allSelected = !allSelected;
+            analysisCheckboxes.forEach(checkbox => {
+                checkbox.checked = allSelected;
+            });
+            updateSelectAllButton();
+        });
+
+        analysisCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', updateSelectAllButton);
+        });
+
+        // The form for deletion is now separate from the list of analyses
+        // We need to move the checked analysis_ids to the delete form before submission
+        deleteButtonForm.addEventListener('submit', function(event) {
+            const analysisListForm = document.getElementById('analysis-list-form');
+            const checkedCheckboxes = analysisListForm.querySelectorAll('input[name="analysis_ids"]:checked');
+            
+            // Clear previous hidden inputs
+            const oldInputs = deleteButtonForm.querySelectorAll('input[name="analysis_ids"]');
+            oldInputs.forEach(input => input.remove());
+
+            if (checkedCheckboxes.length === 0) {
+                alert('삭제할 항목을 선택해주세요.');
+                event.preventDefault(); // Stop form submission
+                return;
             }
+
+            checkedCheckboxes.forEach(checkbox => {
+                const hiddenInput = document.createElement('input');
+                hiddenInput.type = 'hidden';
+                hiddenInput.name = 'analysis_ids';
+                hiddenInput.value = checkbox.value;
+                deleteButtonForm.appendChild(hiddenInput);
+            });
         });
     });
 </script>

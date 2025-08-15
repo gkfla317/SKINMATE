@@ -1,4 +1,5 @@
 import os
+import sys
 import cv2
 import sqlite3
 import json
@@ -97,10 +98,10 @@ def get_skin_scores(filepath):
     try:
         scores = {}
         moisture_script_path = os.path.join(os.path.dirname(__file__), '0812-moisture.py')
-        moisture_result = subprocess.run(['python', moisture_script_path, filepath], capture_output=True, text=True, check=True, encoding='utf-8')
+        moisture_result = subprocess.run([sys.executable, moisture_script_path, filepath], capture_output=True, text=True, check=True, encoding='utf-8')
         scores['moisture'] = float(moisture_result.stdout.strip())
         elasticity_script_path = os.path.join(os.path.dirname(__file__), '0808-test1.py')
-        elasticity_result = subprocess.run(['python', elasticity_script_path, filepath], capture_output=True, text=True, check=True, encoding='utf-8')
+        elasticity_result = subprocess.run([sys.executable, elasticity_script_path, filepath], capture_output=True, text=True, check=True, encoding='utf-8')
         scores['elasticity'] = float(elasticity_result.stdout.strip())
         scores['wrinkle'] = 65.0  # 임의의 값
         scores['skin_type_score'] = 50.0 # 임의의 값
@@ -218,6 +219,55 @@ def history():
     ).fetchall()
     
     return render_template('history.html', analyses=all_analyses)
+
+@app.route('/skin_diary')
+def skin_diary():
+    if 'user_id' not in session:
+        flash('피부 일지를 보려면 먼저 로그인해주세요.')
+        return redirect(url_for('login'))
+    return render_template('skin_diary.html')
+
+@app.route('/delete_analysis/<int:analysis_id>', methods=['POST'])
+def delete_analysis(analysis_id):
+    if 'user_id' not in session:
+        flash('권한이 없습니다.', 'danger')
+        return redirect(url_for('login'))
+
+    db = get_db()
+    analysis = db.execute(
+        'SELECT * FROM analyses WHERE id = ? AND user_id = ?', (analysis_id, session['user_id'])
+    ).fetchone()
+
+    if analysis is None:
+        flash('존재하지 않는 분석 기록입니다.', 'danger')
+        return redirect(url_for('history'))
+
+    db.execute('DELETE FROM analyses WHERE id = ?', (analysis_id,))
+    db.commit()
+    flash('분석 기록이 성공적으로 삭제되었습니다.', 'success')
+    return redirect(url_for('history'))
+
+@app.route('/delete_selected_analyses', methods=['POST'])
+def delete_selected_analyses():
+    if 'user_id' not in session:
+        flash('권한이 없습니다.', 'danger')
+        return redirect(url_for('login'))
+
+    analysis_ids_to_delete = request.form.getlist('analysis_ids')
+    if not analysis_ids_to_delete:
+        flash('삭제할 기록을 선택해주세요.', 'info')
+        return redirect(url_for('history'))
+
+    db = get_db()
+    placeholders = ','.join('?' for _ in analysis_ids_to_delete)
+    query = f'DELETE FROM analyses WHERE id IN ({placeholders}) AND user_id = ?'
+    
+    params = analysis_ids_to_delete + [session['user_id']]
+    db.execute(query, params)
+    db.commit()
+    
+    flash('선택한 분석 기록이 성공적으로 삭제되었습니다.', 'success')
+    return redirect(url_for('history'))
 
 @app.route('/api/history')
 def api_history():
