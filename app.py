@@ -202,6 +202,9 @@ def generate_result_summary(username, main_score, skin_type, top_concerns_names)
 @app.route('/')
 def index(): return render_template('index.html')
 
+@app.route('/introduction')
+def introduction(): return render_template('introduction.html')
+
 @app.route('/analysis')
 def analysis(): return render_template('analysis.html')
 
