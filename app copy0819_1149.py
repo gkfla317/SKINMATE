@@ -494,14 +494,7 @@ def recommendations():
     night_routine = get_night_routine_structure(db, skin_type, concerns, current_season, makeup)
     
     # 사용자 정보
-    now = datetime.now()
     user_info = {
-        "username": session.get('username', '방문자'),
-        "date_info": {
-            "year": now.year,
-            "month": now.month,
-            "day": now.day
-        },
         "skin_type": skin_type,
         "concerns": concerns,
         "season": current_season,

@@ -17,6 +17,43 @@
     .flex-spacer {
         flex: 0.5; /* Adjust this to control the shift */
     }
+    #segmented-bars-container {
+        display: flex;
+        flex-direction: column;
+    }
+    .bar-container {
+        display: flex;
+        align-items: center;
+        margin-bottom: 20px;
+        width: 100%;
+    }
+    .bar-label {
+        width: 50px;
+        font-weight: bold;
+        font-size: 16px;
+        word-break: keep-all;
+        white-space: nowrap;
+    }
+    .segmented-bar {
+        display: flex;
+        width: 100%;
+        flex-grow: 1;
+        height: 25px;
+        border-radius: 5px;
+        overflow: hidden;
+        border: 1px solid #e0e0e0;
+    }
+    .segment {
+        flex: 1;
+        background-color: #f0f0f0;
+        border-left: 1px solid #fff;
+    }
+    .segment:first-child {
+        border-left: none;
+    }
+    .segment.filled {
+        background-color: #D8AAAA;
+    }
 </style>
 {% endblock %}
 
@@ -26,7 +63,38 @@
 
     <div class="chart-container">
         <div id="gauge-chart" class="chart-item"></div>
-        <div id="bar-chart" class="chart-item"></div>
+        <div id="segmented-bars-container" class="chart-item">
+            <div class="bar-container">
+                <span class="bar-label">수분</span>
+                <div class="segmented-bar" data-score="{{ scores.moisture | default(0, true) }}">
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <span class="bar-label">탄력</span>
+                <div class="segmented-bar" data-score="{{ scores.elasticity | default(0, true) }}">
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                </div>
+            </div>
+            <div class="bar-container">
+                <span class="bar-label">주름</span>
+                <div class="segmented-bar" data-score="{{ scores.wrinkle | default(0, true) }}">
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                    <div class="segment"></div>
+                </div>
+            </div>
+        </div>
         <div class="flex-spacer"></div>
     </div>
 
@@ -47,27 +115,6 @@
 <script>
     // Data from Flask
     var mainScore = {{ main_score | round }};
-    var barData = {
-        categories: ['수분', '탄력', '주름'],
-        series: [
-            {
-                name: '점수',
-                data: [
-                    {{ scores.moisture | default(0, true) }},
-                    {{ scores.elasticity | default(0, true) }},
-                    {{ scores.wrinkle | default(0, true) }}
-                ]
-            },
-            {
-                name: '배경',
-                data: [
-                    100 - {{ scores.moisture | default(0, true) }},
-                    100 - {{ scores.elasticity | default(0, true) }},
-                    100 - {{ scores.wrinkle | default(0, true) }}
-                ]
-            }
-        ]
-    };
 
     // Gauge Chart
     var gaugeOptions = {
@@ -131,72 +178,22 @@
     var gaugeChart = new ApexCharts(document.querySelector("#gauge-chart"), gaugeOptions);
     gaugeChart.render();
 
-    // Bar Chart
-    var barOptions = {
-        series: barData.series,
-        chart: {
-            type: 'bar',
-            height: 320,
-            stacked: true,
-            toolbar: { show: false },
-            animations: { enabled: false },
-            stroke: { width: 0 }
-        },
-        states: {
-            hover: { filter: { type: 'none' } },
-            active: { filter: { type: 'none' } }
-        },
-        plotOptions: {
-            bar: {
-                horizontal: true,
-                borderRadius: 8,
-                barHeight: '35%'
-            }
-        },
-        dataLabels: {
-            enabled: false
-        },
-        xaxis: {
-            categories: barData.categories,
-            labels: { show: false },
-            axisBorder: { show: false },
-            axisTicks: { show: false },
-            max: 100
-        },
-        yaxis: {
-            show: true,
-            labels: {
-                show: true,
-                style: {
-                    colors: ['#373d3f'],
-                    fontSize: '14px'
-                }
-            }
-        },
-        grid: {
-            show: false,
-            padding: {
-                left: 40,
-                right: 30
-            }
-        },
-        tooltip: {
-            enabled: true,
-            enabledOnSeries: [0],
-            custom: function({ series, seriesIndex, dataPointIndex, w }) {
-                var val = series[seriesIndex][dataPointIndex];
-                return '<div style="padding: 5px 10px; background-color: #FFF; border: 1px solid #DDD; border-radius: 3px;">' +
-                       val + '점' +
-                       '</div>';
-            }
-        },
-        legend: {
-            show: false
-        },
-        colors: ['#D8AAAA', '#f0f0f0'],
-    };
+    // Segmented Bars
+    document.querySelectorAll('.segmented-bar').forEach(bar => {
+        const score = parseFloat(bar.dataset.score);
+        let level = 0;
+        if (score < 20) level = 1;
+        else if (score < 40) level = 2;
+        else if (score < 60) level = 3;
+        else if (score < 80) level = 4;
+        else level = 5;
 
-    var barChart = new ApexCharts(document.querySelector("#bar-chart"), barOptions);
-    barChart.render();
+        const segments = bar.querySelectorAll('.segment');
+        for (let i = 0; i < level; i++) {
+            if(segments[i]) {
+                segments[i].classList.add('filled');
+            }
+        }
+    });
 </script>
 {% endblock %}

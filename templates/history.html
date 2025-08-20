@@ -10,7 +10,7 @@
         }
         .title-container {
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
         }
         .edit-controls {
@@ -47,7 +47,7 @@
     <!-- Detailed Analyses Card -->
     <div id="detailed-analyses-list" class="card">
         <div class="title-container">
-            <h2>나의 분석 기록</h2>
+            <h2>Analysis History</h2>
         </div>
         <div class="edit-controls">
             <div class="left">
@@ -64,7 +64,7 @@
         </div>
         
         {% if analyses %}
-            <form id="analysis-list-form">
+            <form id="analysis-list-form" style="max-height: 500px; overflow-y: auto;">
                 {% for analysis in analyses %}
                 <div class="history-item">
                     <input type="checkbox" name="analysis_ids" value="{{ analysis.id }}" class="analysis-checkbox">

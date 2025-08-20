@@ -31,7 +31,7 @@ body.introduction-page .centered-content {
 
 body.introduction-page h1 {
     color: #ffffff;
-    font-size: 3.6rem; /* Adjusted size */
+    font-size: 3.4rem; /* Adjusted size */
     font-weight: 700; /* Bold */
     margin: 0;
     /* font-family: 'Playfair Display', serif; */
@@ -40,7 +40,7 @@ body.introduction-page h1 {
 }
 
 body.introduction-page p {
-    color: #e4e4e4; /* Reverted to original color */
+    color: #f5f5f5; /* Reverted to original color */
     font-size: 1.2rem; /* Adjusted size */
     font-weight: 400; /* Regular */
     margin: 20px 0px 0px 6px;
