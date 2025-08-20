@@ -470,6 +470,9 @@ def analyze_image():
         "night_routine": night_routine
     }
 
+    # Store recommendations in session for the new routines page
+    session['recommendations_data'] = recommendations_data
+
     # Save analysis to DB
     scores_serializable = {k: float(v.item() if hasattr(v, 'item') else v) for k, v in scores.items()}
     db.execute(
@@ -500,6 +503,14 @@ def analyze_image():
         # Pass original full scores dict for face icons if needed
         original_scores=scores_serializable
     )
+
+@app.route('/routines')
+def routines():
+    recommendations = session.get('recommendations_data', None)
+    if not recommendations:
+        flash('먼저 피부 분석을 진행해주세요.', 'info')
+        return redirect(url_for('analysis'))
+    return render_template('routines.html', recommendations=recommendations)
 
 @app.route('/recommendations')
 def recommendations():
