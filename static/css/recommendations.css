@@ -22,6 +22,19 @@ main.centered-content {
     border: 3px solid #D8AAAA;
 }
 
+/* 사용 전 안내사항을 꼭 읽어주세요 */
+.info-toggle-button {
+    width: 100%;
+    padding: 15px;
+    font-size: 16px;
+    font-weight: bold;
+    color: #D8AAAA;
+    cursor: pointer;
+    margin-bottom: 20px;
+    border: none;
+    background: none;
+}
+
 /* 로고 이미지 */
 .prescription-logo {
     display: block;
@@ -30,7 +43,7 @@ main.centered-content {
     height: auto;
 }
 
-/* 맞춤형 루틴 처방전 */
+/* 제목 부분 : AI 피부 분석 결과 */
 .user-info-card h2 {
     margin: 0 auto 40px auto;
     color: #BE6A6A;
@@ -109,6 +122,24 @@ main.centered-content {
     margin-left: 5px;
 }
 
+/* 자세히 보기 */
+.result-button-recommend {
+    display: inline-block;
+    background: none;
+    color: #D8AAAA;
+    text-decoration: none;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 400;
+    border: none;
+    cursor: pointer;
+}
+
+.result-button-recommend:hover {
+    background: none;
+    color: rgb(235, 136, 136);
+}
+
 /* 날짜 전체 부분 */
 .prescription-date {
     margin-bottom: 0;
@@ -163,19 +194,7 @@ main.centered-content {
     font-weight: 600;
 }
 
-.info-toggle-button {
-    width: 100%;
-    padding: 15px;
-    font-size: 16px;
-    font-weight: bold;
-    color: #667eea;
-    background-color: #f8f9fa;
-    border: 2px solid #e9ecef;
-    border-radius: 15px;
-    cursor: pointer;
-    margin-bottom: 20px;
-    transition: all 0.3s ease;
-}
+
 
 .info-toggle-button:hover {
     background-color: #e9ecef;
@@ -507,4 +526,105 @@ main.centered-content {
     font-style: italic;
     margin: 40px 0;
     padding: 40px;
+}
+
+/* Chart Styles */
+.chart-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+}
+
+.chart-item {
+    flex: 1;
+    padding: 10px;
+}
+
+.flex-spacer {
+    flex: 0.5;
+}
+
+#segmented-bars-container {
+    display: flex;
+    flex-direction: column;
+}
+
+.bar-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+.bar-label {
+    width: 50px;
+    font-weight: bold;
+    font-size: 16px;
+    word-break: keep-all;
+    white-space: nowrap;
+}
+
+.segment-bar {
+    display: flex;
+    width: 100%;
+    flex-grow: 1;
+    height: 25px;
+    border-radius: 5px;
+    overflow: hidden;
+    border: 1px solid #fff;
+}
+
+.segment {
+    flex: 1;
+    background-color: #f0f0f0;
+    border-left: 1px solid #fff;
+}
+
+.segment:first-child {
+    border-left: none;
+}
+
+.segment.filled {
+    background-color: #D8AAAA;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.6);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 40px;
+    border: 1px solid #888;
+    width: 80%;
+    max-width: 900px;
+    border-radius: 10px;
+    position: relative;
+}
+
+.close-button {
+    color: #aaa;
+    position: absolute;
+    top: 15px;
+    right: 25px;
+    font-size: 35px;
+    font-weight: bold;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
 }

@@ -444,36 +444,62 @@ def analyze_image():
         else:
             scores_serializable[key] = float(value)
     
-    session['skin_analysis_results'] = {
-        'skin_type': reco_data['skin_type'], 
-        'concerns': reco_data['concerns_for_template'], 
-        'recommendation_text': reco_data['recommendation_text'], 
-        'scores': scores_serializable
+    # --- Prepare data for the recommendations part ---
+    db = get_db()
+    skin_type = reco_data['skin_type']
+    concerns = reco_data['concerns_for_template']
+    current_season = get_current_season()
+    makeup = 'no' # Assuming default, or get from form if available
+
+    morning_routine = get_morning_routine_structure(db, skin_type, concerns, current_season, makeup)
+    night_routine = get_night_routine_structure(db, skin_type, concerns, current_season, makeup)
+    
+    now = datetime.now()
+    user_info = {
+        "username": session.get('username', '방문자'),
+        "date_info": {"year": now.year, "month": now.month, "day": now.day},
+        "skin_type": skin_type,
+        "concerns": concerns,
+        "season": current_season,
+        "makeup": makeup
     }
     
-    db = get_db()
-    scores_serializable = {}
-    for key, value in scores.items():
-        if hasattr(value, 'item'):
-            scores_serializable[key] = float(value.item())
-        else:
-            scores_serializable[key] = float(value)
-    
+    recommendations_data = {
+        "user_info": user_info,
+        "morning_routine": morning_routine,
+        "night_routine": night_routine
+    }
+
+    # Save analysis to DB
+    scores_serializable = {k: float(v.item() if hasattr(v, 'item') else v) for k, v in scores.items()}
     db.execute(
         'INSERT INTO analyses (user_id, skin_type, recommendation_text, scores_json, concerns_json, image_filename) VALUES (?, ?, ?, ?, ?, ?)',
-        (session['user_id'], reco_data['skin_type'], reco_data['recommendation_text'], json.dumps(scores_serializable), json.dumps(reco_data['concerns_for_template']), filename)
+        (session['user_id'], skin_type, reco_data['recommendation_text'], json.dumps(scores_serializable), json.dumps(concerns), filename)
     )
     db.commit()
 
+    # Prepare data for the result part
     concern_scores = {k: v for k, v in scores.items() if k != 'skin_type_score'}
-    main_score = sum(concern_scores.values()) / len(concern_scores)
-    result_summary = generate_result_summary(session.get('username', '방문자'), main_score, reco_data['skin_type'], reco_data['top_concerns_names'])
+    main_score = sum(concern_scores.values()) / len(concern_scores) if concern_scores else 0
+    result_summary = generate_result_summary(session.get('username', '방문자'), main_score, skin_type, reco_data['top_concerns_names'])
     
+    # Move file
     static_dir = os.path.join('static', 'uploads_temp')
     if not os.path.exists(static_dir): os.makedirs(static_dir)
     shutil.move(filepath, os.path.join(static_dir, filename))
 
-    return render_template('result.html', main_score=main_score, scores=concern_scores, uploaded_image=url_for('static', filename=f'uploads_temp/{filename}'), result_summary=result_summary)
+    # Render the combined result.html with all data
+    return render_template(
+        'result.html', 
+        main_score=main_score, 
+        scores=concern_scores, 
+        uploaded_image=url_for('static', filename=f'uploads_temp/{filename}'), 
+        result_summary=result_summary,
+        recommendations=recommendations_data,
+        skin_type=skin_type,
+        # Pass original full scores dict for face icons if needed
+        original_scores=scores_serializable
+    )
 
 @app.route('/recommendations')
 def recommendations():
