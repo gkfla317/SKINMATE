@@ -22,12 +22,7 @@
             </div>
             <img src="static\images\morning_line.png" class="morning_line_img">
             <div class="steps-container">
-                {% if recommendations.morning_routine.water_cleansing %}
-                <div class="water-cleansing-info {% if not recommendations.morning_routine.water_cleansing.suitable %}not-suitable{% endif %}">
-                    <h4>{% if recommendations.morning_routine.water_cleansing.suitable %}물세안 적합{% else %}물세안 부적합{% endif %}</h4>
-                    <p>{{ recommendations.morning_routine.water_cleansing.reason }}</p>
-                </div>
-                {% endif %}
+                
                 {% for step in recommendations.morning_routine.steps %}
                 <div class="step-card">
                     <div class="step-td">
@@ -38,18 +33,19 @@
                     <div class="primary-product-card">
                         
                         <div class="product-content">
-                            {% if step.primary_recommendation.image_url %}
-                            <img src="{{ step.primary_recommendation.image_url }}" alt="{{ step.primary_recommendation.name }}" class="product-image" onerror="this.style.display='none'">
-                            {% else %}
-                            <div class="product-image-placeholder"><span>이미지 없음</span></div>
-                            {% endif %}
+                            <div class="product-image-container">
+                                {% if step.primary_recommendation.image_url %}
+                                <img src="{{ step.primary_recommendation.image_url }}" alt="{{ step.primary_recommendation.name }}" class="product-image" onerror="this.style.display='none'">
+                                {% else %}
+                                <div class="product-image-placeholder"><span>이미지 없음</span></div>
+                                {% endif %}
+                                <div class="product-rank">{{ step.primary_recommendation.rank }}위</div>
+                            </div>
                             <div class="product-info">
-                                <div class="product-reason">✨ {{ step.primary_recommendation.reason }}</div>
                                 <div class="product-brand">{{ step.primary_recommendation.brand }}</div>
                                 <div class="product-name">{{ step.primary_recommendation.name }}</div>
-                                <div class="product-rank">랭킹 {{ step.primary_recommendation.rank }}위</div>
                                 {% if step.primary_recommendation.product_url %}
-                                <a href="{{ step.primary_recommendation.product_url }}" target="_blank" class="product-link">제품 보기</a>
+                                <a href="{{ step.primary_recommendation.product_url }}" target="_blank" class="product-link">👀</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -72,7 +68,7 @@
                                     <div class="alternative-rank">랭킹 {{ alt_product.rank }}위</div>
                                 </div>
                                 {% if alt_product.product_url %}
-                                <a href="{{ alt_product.product_url }}" target="_blank" class="product-link small">보기</a>
+                                <a href="{{ alt_product.product_url }}" target="_blank" class="product-link small">👀</a>
                                 {% endif %}
                             </div>
                             {% endfor %}
@@ -94,6 +90,7 @@
                 <h2>{{ recommendations.night_routine.title }}</h2>
                 <p>{{ recommendations.night_routine.description }}</p>
             </div>
+            <img src="static\images\night_line.png" class="night_line_img">
             <div class="steps-container">
                 {% for step in recommendations.night_routine.steps %}
                 <div class="step-card">
@@ -103,18 +100,19 @@
                     <div class="primary-product-card">
                         
                         <div class="product-content">
-                            {% if step.primary_recommendation.image_url %}
-                            <img src="{{ step.primary_recommendation.image_url }}" alt="{{ step.primary_recommendation.name }}" class="product-image" onerror="this.style.display='none'">
-                            {% else %}
-                            <div class="product-image-placeholder"><span>이미지 없음</span></div>
-                            {% endif %}
+                            <div class="product-image-container">
+                                {% if step.primary_recommendation.image_url %}
+                                <img src="{{ step.primary_recommendation.image_url }}" alt="{{ step.primary_recommendation.name }}" class="product-image" onerror="this.style.display='none'">
+                                {% else %}
+                                <div class="product-image-placeholder"><span>이미지 없음</span></div>
+                                {% endif %}
+                                <div class="product-rank">{{ step.primary_recommendation.rank }}위</div>
+                            </div>
                             <div class="product-info">
                                 <div class="product-brand">{{ step.primary_recommendation.brand }}</div>
                                 <div class="product-name">{{ step.primary_recommendation.name }}</div>
-                                <div class="product-rank">랭킹 {{ step.primary_recommendation.rank }}위</div>
-                                <div class="product-reason">✨ {{ step.primary_recommendation.reason }}</div>
                                 {% if step.primary_recommendation.product_url %}
-                                <a href="{{ step.primary_recommendation.product_url }}" target="_blank" class="product-link">제품 보기</a>
+                                <a href="{{ step.primary_recommendation.product_url }}" target="_blank" class="product-link">👀</a>
                                 {% endif %}
                             </div>
                         </div>
@@ -137,7 +135,7 @@
                                     <div class="alternative-rank">랭킹 {{ alt_product.rank }}위</div>
                                 </div>
                                 {% if alt_product.product_url %}
-                                <a href="{{ alt_product.product_url }}" target="_blank" class="product-link small">보기</a>
+                                <a href="{{ alt_product.product_url }}" target="_blank" class="product-link small">👀</a>
                                 {% endif %}
                             </div>
                             {% endfor %}

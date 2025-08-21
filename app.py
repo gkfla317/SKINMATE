@@ -750,33 +750,10 @@ def get_cleanser_by_type_and_concerns(db, cleanser_type, concerns, step):
         print(f"클렌저 검색 중 오류: {e}")
         return None
 
-def get_water_cleansing_recommendation(skin_type, concerns):
-    """물세안 적합성 판단"""
-    # 지성/복합성 피부는 물세안 부적합
-    if skin_type in ['지성', '복합성']:
-        return {
-            'suitable': False,
-            'reason': '지성/복합성 피부는 유분이 많아 물세안만으로는 충분하지 않습니다. 클렌저 사용을 권장합니다.'
-        }
-    
-    # 건성/민감성 피부는 물세안 적합
-    elif skin_type in ['건성', '민감성']:
-        return {
-            'suitable': True,
-            'reason': '건성/민감성 피부는 물세안이 적합할 수 있습니다. 피부 자극을 최소화할 수 있습니다.'
-        }
-    
-    # 중성 피부는 조건부 적합
-    else:
-        return {
-            'suitable': True,
-            'reason': '중성 피부는 물세안이 적합할 수 있지만, 메이크업이나 자외선 차단제 사용 시에는 클렌저 사용을 권장합니다.'
-        }
+
 
 def get_morning_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
     """모닝 루틴 구조화된 추천"""
-    water_cleansing = get_water_cleansing_recommendation(skin_type, concerns)
-    
     steps = []
     
     # STEP 1: 아침 세안
@@ -787,30 +764,25 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
         "alternatives": []
     }
     
-    # 물세안이 적합한 경우
-    if water_cleansing['suitable']:
-        step1["step_description"] = "물세안으로 충분합니다. 따뜻한 물로 부드럽게 씻어내세요."
-    else:
-        # 클렌저 추천
-        cleanser_query = """
-            SELECT * FROM products 
-            WHERE main_category = '클렌징' 
-            AND (name LIKE '%워터%' OR name LIKE '%젤%' OR name LIKE '%폼%')
-            ORDER BY rank ASC
-            LIMIT 3
-        """
-        cleansers = db.execute(cleanser_query).fetchall()
-        if cleansers:
-            primary = dict(cleansers[0])
-            primary['reason'] = f"{primary['sub_category']} 고민을 위한 가벼운 아침 클렌저"
-            step1["primary_recommendation"] = primary
-            
-            # 대안 제품들
-            alternatives = []
-            for i in range(1, min(3, len(cleansers))):
-                alt = dict(cleansers[i])
-                alternatives.append(alt)
-            step1["alternatives"] = alternatives
+    # 클렌저 추천
+    cleanser_query = """
+        SELECT * FROM products 
+        WHERE main_category = '클렌징' 
+        AND (name LIKE '%워터%' OR name LIKE '%젤%' OR name LIKE '%폼%')
+        ORDER BY rank ASC
+        LIMIT 3
+    """
+    cleansers = db.execute(cleanser_query).fetchall()
+    if cleansers:
+        primary = dict(cleansers[0])
+        step1["primary_recommendation"] = primary
+        
+        # 대안 제품들
+        alternatives = []
+        for i in range(1, min(3, len(cleansers))):
+            alt = dict(cleansers[i])
+            alternatives.append(alt)
+        step1["alternatives"] = alternatives
     
     steps.append(step1)
     
@@ -833,7 +805,6 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     
     if toners:
         primary = dict(toners[0])
-        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 부드럽게 정돈해요"
         step2["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -864,7 +835,6 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     
     if moisturizers:
         primary = dict(moisturizers[0])
-        primary['reason'] = f"{primary['sub_category']} 효과로 가벼운 수분을 공급해요"
         step3["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -879,8 +849,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     return {
         "title": '" 모닝 루틴 "',
         "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
-        "steps": steps,
-        "water_cleansing": water_cleansing
+        "steps": steps
     }
 
 def get_night_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
@@ -918,7 +887,6 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     cleansers = db.execute(cleanser_query).fetchall()
     if cleansers:
         primary = dict(cleansers[0])
-        primary['reason'] = f"{primary['sub_category']} 효과로 깊이 있는 세정을 해요"
         step1["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -949,7 +917,6 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     
     if serums:
         primary = dict(serums[0])
-        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 깊이 있게 케어해요"
         step2["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -980,7 +947,6 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     
     if creams:
         primary = dict(creams[0])
-        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 든든하게 보호해요"
         step3["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -993,7 +959,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     steps.append(step3)
     
     return {
-        "title": "나이트 루틴 (Night Routine)",
+        "title": '" 나이트 루틴 "',
         "description": "하루 동안 쌓인 노폐물을 씻어내고 피부 깊숙이 영양을 공급해요.",
         "steps": steps
     }
