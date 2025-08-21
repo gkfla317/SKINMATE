@@ -877,7 +877,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     steps.append(step3)
     
     return {
-        "title": "모닝 루틴 (Morning Routine)",
+        "title": '" 모닝 루틴 "',
         "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
         "steps": steps,
         "water_cleansing": water_cleansing

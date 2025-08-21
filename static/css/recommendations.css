@@ -243,10 +243,12 @@ main.centered-content {
     color: #888;
 }
 
+
+
+
+/* routines.html 페이지 관련 내용 */
 .morning-routine-section {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    background: none;
     margin-bottom: 40px;
     overflow: hidden;
 }
@@ -260,9 +262,9 @@ main.centered-content {
 }
 
 .routine-header {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    color: white;
-    padding: 30px;
+    background: none;
+    color: black;
+    padding: 30px 30px 10px 30px;
     text-align: center;
 }
 
@@ -271,15 +273,19 @@ main.centered-content {
 }
 
 .routine-header h2 {
-    margin: 0 0 10px 0;
-    font-size: 24px;
-    font-weight: bold;
+    margin: 60px 0 6px 0;
+    font-size: 32px;
+    font-weight: 800;
 }
 
 .routine-header p {
     margin: 0;
     font-size: 16px;
-    opacity: 0.9;
+    color: #504b4b;
+}
+
+.morning_line_img {
+    width: 600px;
 }
 
 .steps-container {
@@ -287,15 +293,23 @@ main.centered-content {
 }
 
 .step-card {
-    background: #f8f9fa;
-    border-radius: 15px;
-    padding: 25px;
+    /* background: #f8f9fa;
+    border-radius: 15px;*/
+    margin: 25px;
     margin-bottom: 25px;
-    border-left: 5px solid #667eea;
+    /* border-left: 5px solid #667eea;  */
+    background-color: #ffffff;
+    
 }
 
 .step-card:last-child {
     margin-bottom: 0;
+}
+
+.step-td {
+    background: #FFF8C9;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
 }
 
 .step-title {
@@ -303,6 +317,7 @@ main.centered-content {
     font-weight: bold;
     color: #333;
     margin-bottom: 10px;
+
 }
 
 .step-description {
@@ -312,13 +327,9 @@ main.centered-content {
 }
 
 .primary-product-card {
-    background: white;
-    border-radius: 15px;
     padding: 25px;
     margin-bottom: 20px;
-    border: 2px solid #667eea;
     position: relative;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
 }
 
 .primary-badge {
@@ -359,11 +370,20 @@ main.centered-content {
     flex: 1;
 }
 
+.product-reason {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 15px;
+    line-height: 1.4;
+    text-align: left;
+}
+
 .product-brand {
     color: #667eea;
     font-weight: bold;
     font-size: 14px;
     margin-bottom: 5px;
+    text-align: left;
 }
 
 .product-name {
@@ -372,6 +392,7 @@ main.centered-content {
     color: #333;
     margin-bottom: 10px;
     line-height: 1.3;
+    text-align: left;
 }
 
 .product-rank {
@@ -383,13 +404,6 @@ main.centered-content {
     font-weight: bold;
     display: inline-block;
     margin-bottom: 10px;
-}
-
-.product-reason {
-    color: #666;
-    font-size: 14px;
-    margin-bottom: 15px;
-    line-height: 1.4;
 }
 
 .product-link {
@@ -421,13 +435,12 @@ main.centered-content {
 }
 
 .alternatives-accordion summary {
-    background: #e9ecef;
+    background: none;
     padding: 15px 20px;
     border-radius: 10px;
     cursor: pointer;
-    font-weight: bold;
-    color: #495057;
-    transition: background 0.3s ease;
+    color: #D8AAAA;
+    font-size: 14px;
 }
 
 .alternatives-accordion summary:hover {
@@ -497,8 +510,6 @@ main.centered-content {
 }
 
 .water-cleansing-info {
-    background: #e8f5e8;
-    border-left: 4px solid #4caf50;
     padding: 20px;
     margin: 20px 0;
     border-radius: 10px;
@@ -628,3 +639,4 @@ main.centered-content {
     text-decoration: none;
     cursor: pointer;
 }
+
