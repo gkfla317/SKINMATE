@@ -246,7 +246,7 @@ def generate_recommendations(scores, username):
     elif '수분' in top_concerns_names:
         product_recommendation = "히알루론산과 글리세린 같은 뛰어난 보습 성분이 포함된 제품으로 피부 깊숙이 수분을 채워주세요."
     elif '주름' in top_concerns_names:
-        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 탄력 있는 피부로 관리하세요."
+        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 생기 있는 피부로 관리하세요."
     elif '탄력' in top_concerns_names:
         product_recommendation = "펩타이드와 콜라겐 성분이 함유된 제품으로 피부 결을 단단하게 하고 건강한 탄력을 되찾아 보세요."
 
