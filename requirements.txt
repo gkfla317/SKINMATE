@@ -1,0 +1,17 @@
+Flask==2.3.3
+Werkzeug==2.3.7
+tensorflow>=2.20.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+xgboost>=1.7.0
+Pillow>=10.0.0
+click>=8.1.0
+
+# 크롤링 관련 의존성
+requests>=2.31.0
+
+# Google Cloud 배포용
+google-cloud-storage>=2.0.0
+gunicorn>=20.1.0
