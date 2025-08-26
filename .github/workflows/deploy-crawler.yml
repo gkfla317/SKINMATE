@@ -1,0 +1,50 @@
+name: Deploy Crawler to Google Cloud Run
+
+on:
+  push:
+    branches: [ main ] # Triggers on push to main branch
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: skinmate-crawler # New service name for the crawler
+  REGION: asia-northeast3 # Matching the Cloud SQL region
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Google Cloud CLI
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+        
+    - name: Authenticate to Google Cloud
+      id: auth
+      uses: google-github-actions/auth@v1
+      with:
+        credentials: ${{ secrets.GCP_SA_KEY }}
+        
+    - name: Configure Docker
+      run: gcloud auth configure-docker
+      
+    - name: Build and push Docker image
+      run: |
+        docker build -f Dockerfile.crawler -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} .
+        docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+        
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+          --platform managed \
+          --region ${{ env.REGION }} \
+          --no-allow-unauthenticated \
+          --set-env-vars DB_HOST=${{ secrets.DB_HOST }},DB_NAME=${{ secrets.DB_NAME }},DB_USER=${{ secrets.DB_USER }},DB_PASSWORD=${{ secrets.DB_PASSWORD }},DB_PORT=${{ secrets.DB_PORT }} \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 900 \
+          --max-instances 1
