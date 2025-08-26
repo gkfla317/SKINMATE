@@ -37,6 +37,24 @@ class CloudStorageManager:
             print(f"파일 업로드 실패: {e}")
             return None
     
+    def upload_local_path(self, file_path: str, original_filename: str, folder: str = "uploads"):
+        """로컬 경로의 파일을 Cloud Storage에 업로드"""
+        try:
+            filename = secure_filename(original_filename)
+            unique_filename = f"{uuid.uuid4()}_{filename}"
+            blob_path = f"{folder}/{unique_filename}"
+            blob = self.bucket.blob(blob_path)
+            blob.upload_from_filename(file_path)
+            blob.make_public()
+            return {
+                'filename': unique_filename,
+                'url': blob.public_url,
+                'path': blob_path
+            }
+        except Exception as e:
+            print(f"파일 업로드 실패(로컬 경로): {e}")
+            return None
+    
     def delete_file(self, blob_path):
         """Cloud Storage에서 파일 삭제"""
         try:

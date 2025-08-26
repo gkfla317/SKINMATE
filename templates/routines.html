@@ -9,8 +9,14 @@
 {% block content %}
 <div class="prescription-container">
     <div class="routine-tab-buttons">
-        <button class="tab-button active" onclick="showRoutine('morning', this)">모닝 루틴</button>
-        <button class="tab-button" onclick="showRoutine('night', this)">나이트 루틴</button>
+        <button class="tab-button active" onclick="showRoutine('morning', this)">
+            <img src="{{ url_for('static', filename='images/morning_icon.png') }}" alt="Morning Routine">
+            <span>모닝 루틴</span>
+        </button>
+        <button class="tab-button" onclick="showRoutine('night', this)">
+            <img src="{{ url_for('static', filename='images/night_icon.png') }}" alt="Night Routine">
+            <span>나이트 루틴</span>
+        </button>
     </div>
     <!-- 모닝 루틴 -->
     {% if recommendations and recommendations.morning_routine %}
@@ -93,14 +99,15 @@
             <img src="static\images\night_line.png" class="night_line_img">
             <div class="steps-container">
                 {% for step in recommendations.night_routine.steps %}
-                <div class="step-card">
-                    <div class="step-title">{{ step.step_title }}</div>
-                    <div class="step-description">{{ step.step_description }}</div>
+                <div class="step-card night">
+                    <div class="step-td night">
+                        <div class="step-title night">{{ step.step_title }}</div>
+                        <div class="step-description night">{{ step.step_description }}</div>
+                    </div>
                     {% if step.primary_recommendation %}
-                    <div class="primary-product-card">
-                        
-                        <div class="product-content">
-                            <div class="product-image-container">
+                    <div class="primary-product-card night">                        
+                        <div class="product-content night">
+                            <div class="product-image-container night">
                                 {% if step.primary_recommendation.image_url %}
                                 <img src="{{ step.primary_recommendation.image_url }}" alt="{{ step.primary_recommendation.name }}" class="product-image" onerror="this.style.display='none'">
                                 {% else %}
@@ -148,6 +155,7 @@
         </div>
     </div>
     {% endif %}
+    </div>
 </div>
 {% endblock %}
 
@@ -184,8 +192,10 @@ function showRoutine(routineName, elmnt) {
     const mainContent = document.querySelector('main.centered-content');
     if (routineName === 'morning') {
         mainContent.style.backgroundColor = '#FFFFF8';
+        mainContent.classList.remove('night-theme');
     } else if (routineName === 'night') {
         mainContent.style.backgroundColor = '#221A46';
+        mainContent.classList.add('night-theme');
     }
 }
 </script>

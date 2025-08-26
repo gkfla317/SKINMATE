@@ -12,17 +12,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from datetime import datetime, timedelta
 
-# Google Cloud Storage 연동
-try:
-    from cloud_storage import CloudStorageManager
-    CLOUD_STORAGE_ENABLED = True
-    # 환경 변수에서 버킷 이름 가져오기 (배포 시 설정)
-    BUCKET_NAME = os.environ.get('BUCKET_NAME', 'skinmate-uploads-default')
-    cloud_storage = CloudStorageManager(BUCKET_NAME)
-except ImportError:
-    CLOUD_STORAGE_ENABLED = False
-    cloud_storage = None
-
 
 # TensorFlow 경고 메시지 숨기기
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -257,7 +246,7 @@ def generate_recommendations(scores, username):
     elif '수분' in top_concerns_names:
         product_recommendation = "히알루론산과 글리세린 같은 뛰어난 보습 성분이 포함된 제품으로 피부 깊숙이 수분을 채워주세요."
     elif '주름' in top_concerns_names:
-        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 탄력 있는 피부로 관리하세요."
+        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 생기 있는 피부로 관리하세요."
     elif '탄력' in top_concerns_names:
         product_recommendation = "펩타이드와 콜라겐 성분이 함유된 제품으로 피부 결을 단단하게 하고 건강한 탄력을 되찾아 보세요."
 
@@ -858,7 +847,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     steps.append(step3)
     
     return {
-        "title": '" 모닝 루틴 "',
+        "title": '" Morning "',
         "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
         "steps": steps
     }
@@ -970,7 +959,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     steps.append(step3)
     
     return {
-        "title": '" 나이트 루틴 "',
+        "title": '" Night "',
         "description": "하루 동안 쌓인 노폐물을 씻어내고 피부 깊숙이 영양을 공급해요.",
         "steps": steps
     }

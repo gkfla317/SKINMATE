@@ -1,44 +1,19 @@
-# Git 관련
+# Git
 .git
 .gitignore
 
-# Python 관련
-__pycache__
+# IDE
+.idea
+.vscode
+
+# Python
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env
-pip-log.txt
-pip-delete-this-directory.txt
-.tox
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.log
-.git
-.mypy_cache
-.pytest_cache
-.hypothesis
+venv/
+.env
 
-# 개발 환경
-.vscode
-.idea
-*.swp
-*.swo
-*~
-
-# 로컬 파일
-uploads/
+# DB
 instance/
 *.sqlite
-*.db
-
-# 임시 파일
-*.tmp
-*.temp
-.DS_Store
-Thumbs.db
