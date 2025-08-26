@@ -4,7 +4,9 @@
 """
 
 import logging
-import sqlite3
+import os # 환경 변수를 읽기 위해 추가
+import psycopg2 # PostgreSQL 연결을 위해 추가
+from psycopg2 import Error as PgError # 에러 처리를 위해 추가
 from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
@@ -18,28 +20,33 @@ logger = logging.getLogger(__name__)
 
 class ProductDatabase:
     """제품 데이터베이스 관리 클래스"""
+
+    def __init__(self):
+        # Cloud SQL 연결 정보는 환경 변수에서 가져옵니다.
+        # 이 환경 변수들은 나중에 Cloud Run 서비스에 설정할 것입니다.
+        self.db_host = os.environ.get("DB_HOST")
+        self.db_name = os.environ.get("DB_NAME")
+        self.db_user = os.environ.get("DB_USER")
+        self.db_password = os.environ.get("DB_PASSWORD")
+        self.db_port = os.environ.get("DB_PORT", "5432") # PostgreSQL 기본 포트
+
+        # 로컬 SQLite 관련 초기화 제거
+        # self.db_path = db_path
+        # self.ensure_db_directory()
+        self.init_database() # Cloud SQL 연결 후 테이블 초기화
     
-    def __init__(self, db_path: str = "instance/skinmate.sqlite"):
-        self.db_path = db_path
-        self.ensure_db_directory()
-        self.init_database()
-    
-    def ensure_db_directory(self):
-        """데이터베이스 디렉토리가 존재하는지 확인하고 생성합니다."""
-        db_dir = Path(self.db_path).parent
-        db_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"데이터베이스 디렉토리 확인: {db_dir}")
-    
-    def get_connection(self) -> sqlite3.Connection:
+    def get_connection(self) -> psycopg2.extensions.connection: # 반환 타입 힌트 변경
         """데이터베이스 연결을 반환합니다."""
         try:
-            conn = sqlite3.connect(
-                self.db_path,
-                detect_types=sqlite3.PARSE_DECLTYPES
+            conn = psycopg2.connect(
+                host=self.db_host,
+                database=self.db_name,
+                user=self.db_user,
+                password=self.db_password,
+                port=self.db_port
             )
-            conn.row_factory = sqlite3.Row
             return conn
-        except Exception as e:
+        except PgError as e: # psycopg2 에러 타입으로 변경
             logger.error(f"데이터베이스 연결 실패: {e}")
             raise
     
@@ -48,11 +55,11 @@ class ProductDatabase:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                
-                # products 테이블 생성
+
+                # products 테이블 생성 (PostgreSQL 문법에 맞게 수정)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS products (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id SERIAL PRIMARY KEY, -- AUTOINCREMENT 대신 SERIAL
                         product_id INTEGER UNIQUE,
                         name TEXT NOT NULL,
                         brand TEXT NOT NULL,
@@ -65,36 +72,42 @@ class ProductDatabase:
                         scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                
-                # middle_category 컬럼이 없으면 추가
+
+                # middle_category 컬럼이 없으면 추가 (PostgreSQL 에러 처리)
                 try:
                     cursor.execute("ALTER TABLE products ADD COLUMN middle_category TEXT")
                     logger.info("middle_category 컬럼 추가 완료")
-                except sqlite3.OperationalError:
-                    # 컬럼이 이미 존재하는 경우
-                    pass
-                
-                # 인덱스 생성 (성능 최적화)
+                except PgError as e: # psycopg2 에러 타입으로 변경
+                    # 컬럼이 이미 존재하는 경우 (PostgreSQL에서는 'duplicate column' 에러 발생)
+                    if "duplicate column" in str(e).lower():
+                        pass
+                    else:
+                        raise # 다른 에러는 다시 발생
+
+                # 인덱스 생성 (성능 최적화) - SQLite와 동일하게 사용 가능
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_product_id 
+                    CREATE INDEX IF NOT EXISTS idx_product_id
                     ON products(product_id)
                 """)
-                
+
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_category 
+                    CREATE INDEX IF NOT EXISTS idx_category
                     ON products(main_category, sub_category)
                 """)
-                
+
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_scraped_at 
+                    CREATE INDEX IF NOT EXISTS idx_scraped_at
                     ON products(scraped_at)
                 """)
-                
+
                 conn.commit()
                 logger.info("데이터베이스 초기화 완료")
-                
-        except Exception as e:
+
+        except PgError as e: # psycopg2 에러 타입으로 변경
             logger.error(f"데이터베이스 초기화 실패: {e}")
+            raise
+        except Exception as e: # 기타 예외 처리
+            logger.error(f"데이터베이스 초기화 실패 (일반 오류): {e}")
             raise
     
     def upsert_products(self, products: List[Dict]) -> int:

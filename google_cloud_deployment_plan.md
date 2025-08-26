@@ -32,12 +32,14 @@
 1.  **Cloud SQL 인스턴스 생성:**
     *   Google Cloud Console에서 **Cloud SQL** 서비스로 이동하여 새 인스턴스를 생성합니다. (예: PostgreSQL 또는 MySQL)
     *   데이터베이스 이름, 사용자, 비밀번호를 설정합니다.
+    *   **진행 상황:** 현재 이 단계에 대한 설명이 진행 중입니다.
 2.  **`database.py` 수정:**
     *   `database.py` 파일을 수정하여 SQLite 대신 Cloud SQL에 연결하도록 변경합니다.
     *   **예시 (PostgreSQL로 변경 시):**
         *   `sqlite3` 대신 `psycopg2` (또는 `SQLAlchemy`와 같은 ORM) 라이브러리를 사용하도록 변경합니다.
         *   `get_connection` 메서드에서 Cloud SQL 연결 문자열을 사용하도록 수정합니다. 연결 정보(호스트, 포트, 사용자, 비밀번호, DB 이름)는 환경 변수로 관리하는 것이 좋습니다.
         *   `init_database`의 `CREATE TABLE` 문을 Cloud SQL의 SQL 문법에 맞게 조정합니다.
+    *   **진행 상황:** `database.py` 수정 방법에 대한 상세 설명 완료.
 3.  **데이터 마이그레이션 (선택 사항):** 기존 SQLite 데이터가 있다면, `sqlite3`에서 데이터를 덤프하여 Cloud SQL로 임포트하는 과정을 거쳐야 합니다.
 4.  **Cloud Run 환경 변수 설정:** `deploy.yml` 또는 Cloud Run 서비스 설정에서 Cloud SQL 연결에 필요한 환경 변수(예: `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`)를 추가합니다.
 
@@ -69,4 +71,4 @@
 Google Cloud의 관리형 서비스는 기본적으로 통합된 로깅 및 모니터링 기능을 제공합니다.
 
 1.  **Cloud Logging:** Cloud Run에서 발생하는 모든 로그(표준 출력/오류)는 자동으로 Cloud Logging으로 전송됩니다. 콘솔에서 쉽게 로그를 확인하고 필터링할 수 있습니다.
-2.  **Cloud Monitoring:** Cloud Run 서비스의 성능 지표(CPU 사용량, 메모리 사용량, 요청 수 등)를 자동으로 수집합니다. 대시보드를 설정하고 알림 정책을 구성하여 서비스 상태를 모니터링할 수 있습니다.
+2.  **Cloud Monitoring:** Cloud Run 서비스의 성능 지표(CPU 사용량, 메모리 사용량, 요청 수 등)를 자동으로 수집합니다. 대시보드를 설정하고 알림 정책을 구성하여 서비스 상태를 모니터링할 수。

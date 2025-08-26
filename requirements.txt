@@ -6,3 +6,4 @@ xgboost
 gunicorn
 click
 werkzeug
+psycopg2-binary
