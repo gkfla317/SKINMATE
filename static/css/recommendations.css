@@ -24,15 +24,22 @@ main.centered-content {
 
 /* 사용 전 안내사항을 꼭 읽어주세요 */
 .info-toggle-button {
+    display: inline-block;
+    text-decoration: none;
     width: 100%;
     padding: 15px;
     font-size: 16px;
     font-weight: bold;
-    color: #D8AAAA;
+    color: #d47575;
     cursor: pointer;
     margin-bottom: 20px;
     border: none;
     background: none;
+}
+
+.info-toggle-button:hover {
+    background-color: none;
+    color: rgb(226, 77, 77);
 }
 
 /* 로고 이미지 */
@@ -126,11 +133,11 @@ main.centered-content {
 .result-button-recommend {
     display: inline-block;
     background: none;
-    color: #D8AAAA;
+    color: #5a5a5a;
     text-decoration: none;
     padding: 10px 20px;
     font-size: 14px;
-    font-weight: 400;
+    font-weight: 500;
     border: none;
     cursor: pointer;
 }
@@ -194,17 +201,10 @@ main.centered-content {
     font-weight: 600;
 }
 
-
-
-.info-toggle-button:hover {
-    background-color: #e9ecef;
-    border-color: #dee2e6;
-}
-
 .info-section {
-    padding: 25px;
-    background-color: #f8f9fa;
-    border-radius: 15px;
+    /* padding: 25px; */
+    background-color: none;
+    /* border-radius: 15px; */
     margin: 20px 0;
 }
 
@@ -212,6 +212,7 @@ main.centered-content {
     display: none;
 }
 
+/* 구분선 */
 .info-section .qa-section,
 .info-section .tip-section {
     margin-bottom: 20px;
@@ -222,60 +223,92 @@ main.centered-content {
 .info-section h4 {
     margin-top: 0;
     font-weight: bold;
+    font-size: 24px;
 }
 
 .info-section p {
     margin-bottom: 0;
-    font-size: 14px;
-    color: #666;
+    font-size: 18px;
+    color: #3d3d3d;
 }
 
-.info-section .tip-section h4 {
-    color: #667eea;
-}
-
-.info-section .disclaimer-section h4 {
-    color: #777;
-}
+/* .info-section .disclaimer-section h4 {
+    color: #e75b5b;
+} */
 
 .info-section .disclaimer-section p {
-    font-size: 12px;
-    color: #888;
+    color: #eb3434;
 }
-
-
 
 
 /* routines.html 페이지 관련 내용 */
 
 .routine-tab-buttons {
-    text-align: center;
-    margin-bottom: 20px;
-    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: center;
+    gap: 20px; /* Add some space between the buttons */
+    margin: 20px 0 20px 0;
 }
 
+.tab-button img {
+    width: 70px;
+    height: 70px;
+}
+
+/* Morning theme styles for tab buttons */
 .tab-button {
     background: none;
     border: none;
-    padding: 15px 25px;
+    padding:50px 80px 0px 80px;
     cursor: pointer;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 500;
-    color: #888;
-    transition: all 0.3s ease;
-    border-bottom: 3px solid transparent;
-}
-
-.tab-button:hover {
-    color: #000;
+    color: #1cff2800;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.2;
 }
 
 .tab-button.active {
-    color: #000;
-    font-weight: 700;
-    border-bottom: 3px solid #000;
+    color: #e6121200;
+    font-weight: 500;
+    font-size: 16px;
+    opacity: 1;
 }
 
+.tab-button.active:hover {
+    color: #f7c72a;
+    opacity: 1;
+}
+
+.tab-button:hover {
+    color: #d3c9ee;
+    opacity: 1;
+}
+
+/* Night theme styles for tab buttons */
+main.night-theme .tab-button {
+    color: #cccccc00; 
+}
+
+main.night-theme .tab-button.active {
+    color: #ffffff00; 
+
+}
+
+main.night-theme .tab-button:hover {
+    color: #b3932d; 
+    font-weight: 500;
+
+}
+
+main.night-theme .tab-button.active:hover {
+    color: #d3c9ee; 
+    font-weight: 500;
+
+}
 
 .morning-routine-section {
     background: none;
@@ -292,24 +325,43 @@ main.centered-content {
 .routine-header {
     background: none;
     color: black;
-    padding: 30px 30px 10px 30px;
+    padding: 10px 30px 10px 30px;
     text-align: center;
 }
 
 .routine-header.night {
     background: none;
+    color: #ffffff;
+    padding: 10px 30px 10px 30px;
+    text-align: center;
 }
 
 .routine-header h2 {
     margin: 60px 0 12px 0;
-    font-size: 32px;
+    font-size: 38px;
     font-weight: 700;
+    color: #f7c72a;
+    font-family: 'Gaegu', cursive;
+}
+
+.routine-header.night h2 {
+    margin: 60px 0 12px 0;
+    font-size: 38px;
+    font-weight: 700;
+    color: white;
+    font-family: 'Gaegu', cursive;
 }
 
 .routine-header p {
     margin: 0;
     font-size: 16px;
     color: #504b4b;
+}
+
+.routine-header.night p {
+    margin: 0;
+    font-size: 16px;
+    color: #dad4d4;
 }
 
 .morning_line_img {
@@ -332,6 +384,17 @@ main.centered-content {
     width: 500px;
 }
 
+.step-card.night {
+    /* background: #f8f9fa; */
+    border-radius: 18px;
+    margin: 25px;
+    margin-bottom: 25px;
+    /* border-left: 5px solid #667eea;  */
+    background-color: #ffffff;
+    border: 1px solid #000000;
+    width: 500px;
+}
+
 .step-card:last-child {
     margin-bottom: 0;
 }
@@ -343,16 +406,35 @@ main.centered-content {
     padding: 20px;
 }
 
+.step-td.night {
+    background: #565B9C;
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    padding: 20px;
+}
+
 .step-title {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 450;
     color: #000000;
     margin-bottom: 6px;
 }
 
+.step-title.night {
+    font-size: 22px;
+    font-weight: 450;
+    color: #ffffff;
+    margin-bottom: 6px;
+}
+
 .step-description {
     color: #666;
-    font-size: 14px;
+    font-size: 16px;
+}
+
+.step-description.night {
+    color: #d6d6d6;
+    font-size: 16px;
 }
 
 .primary-product-card {
@@ -649,7 +731,7 @@ main.centered-content {
     margin: 5% auto;
     padding: 40px;
     border: 1px solid #888;
-    width: 80%;
+    width: 60%;
     max-width: 900px;
     border-radius: 10px;
     position: relative;
@@ -670,4 +752,5 @@ main.centered-content {
     text-decoration: none;
     cursor: pointer;
 }
+
 

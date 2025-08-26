@@ -61,7 +61,7 @@
 
 <div class="prescription-container">
     {% if recommendations and recommendations.user_info %}
-    <button id="toggleInfoBtn" class="info-toggle-button">⚠️ 사용 전 안내사항을 꼭 읽어주세요</button>
+    <button id="toggleInfoBtn" class="info-toggle-button">⚠️안내사항</button>
     <div class="user-info-card">
         <img src="{{ url_for('static', filename='images/logo_icon_img.jpg') }}" alt="SKINMATE Logo" class="prescription-logo">
         <h2>&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbspAI 피부 분석 결과&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp</h2>
@@ -74,7 +74,7 @@
                 <span class="score-item">주름 <img src="{{ url_for('static', filename='images/' + get_face_icon(scores.wrinkle)) }}" alt="주름 점수 아이콘" class="score-face-icon"></span>
             {% endif %}
         </div>
-        <button id="showResultModalBtn" class="result-button-recommend">자세히 보기 ></button>
+        <button id="showResultModalBtn" class="result-button-recommend">🔍 자세히 보기</button>
         <p class="prescription-date">
             <span class="date-num">{{ recommendations.user_info.date_info.year }}</span><span class="date-unit">년</span>
             <span class="date-num">{{ recommendations.user_info.date_info.month }}</span><span class="date-unit">월</span>
@@ -100,15 +100,15 @@
         <span class="close-button info-close">&times;</span>
         <div class="info-section">
             <div class="qa-section">
-                <h4>Only! 나만을 위한 추천이에요!</h4>
-                <p>SKINMATE는 그냥 인기순으로 제품을 추천하지 않아요.<br>우리 피부 고민, 피부 타입, 그리고 계절에 맞는 제형까지 꼼꼼하게 따져서 지금 당신에게 가장 잘 맞는 제품을 알려드려요.</p>
+                <h4>💖Only! 나만을 위한 추천!</h4>
+                <p>SKINMATE는 그냥 인기순으로 제품을 추천하지 않아요.<br>피부 고민과 피부 타입, 그리고 계절에 맞는 제형까지 꼼꼼하게 따져<br>내 피부에 가장 잘 맞는 제품을 알려드려요.</p>
             </div>
             <div class="tip-section">
                 <h4>💡피부 관리 팁</h4>
                 <p>피부는 꾸준히 관리할 때 더 좋아져요.<br>30일 뒤에 다시 분석해서 어떻게 달라졌는지 꼭 확인해보세요!</p>
             </div>
             <div class="disclaimer-section">
-                <h4>사용 시 유의사항</h4>
+                <h4>❗사용 시 유의사항</h4>
                 <p>본 추천은 AI 기반 진단 결과로, 실제 효능은 개인의 피부 상태 및 반응에 따라 다를 수 있어요.<br>특정 성분에 알레르기가 있으신 경우 제품 전성분을 반드시 확인해주세요.</p>
             </div>
         </div>
@@ -229,6 +229,10 @@
         const infoModal = document.getElementById('infoModal');
         const showInfoBtn = document.getElementById('toggleInfoBtn');
         const infoCloseSpan = document.querySelector('#infoModal .close-button');
+
+        if (infoModal) { // Show modal on page load
+            infoModal.style.display = "block";
+        }
 
         if (showInfoBtn) {
             showInfoBtn.onclick = function() {

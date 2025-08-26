@@ -847,7 +847,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     steps.append(step3)
     
     return {
-        "title": '" 모닝 루틴 "',
+        "title": '" Morning "',
         "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
         "steps": steps
     }
@@ -959,7 +959,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     steps.append(step3)
     
     return {
-        "title": '" 나이트 루틴 "',
+        "title": '" Night "',
         "description": "하루 동안 쌓인 노폐물을 씻어내고 피부 깊숙이 영양을 공급해요.",
         "steps": steps
     }
