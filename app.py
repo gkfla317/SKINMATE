@@ -9,28 +9,70 @@ import click
 from flask import Flask, render_template, request, redirect, url_for, flash, session, g, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
+
+import base64
+from google.cloud import aiplatform
+from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Value
 
 from datetime import datetime, timedelta
+
+load_dotenv()
 
 
 # TensorFlow 경고 메시지 숨기기
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-# --- 전역 변수로 ResNet50 모델 로드 ---
-_resnet_model = None
-def get_resnet_model():
-    """ResNet50 모델을 전역 변수로 한 번만 로드"""
-    global _resnet_model
-    if _resnet_model is None:
-        try:
-            from tensorflow.keras.applications.resnet50 import ResNet50
-            _resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
-            print("ResNet50 모델 로드 완료")
-        except Exception as e:
-            print(f"ResNet50 모델 로드 실패: {e}")
-            _resnet_model = None
-    return _resnet_model
+# --- Vertex AI 설정 ---
+PROJECT_ID = os.environ.get("PROJECT_ID")
+ENDPOINT_ID = os.environ.get("ENDPOINT_ID")
+REGION = os.environ.get("REGION")
+CREDENTIALS_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+
+def predict_skin_type_from_vertex_ai(image_filepath):
+    """Vertex AI 엔드포인트에 이미지 분류 예측을 요청하고 피부 타입 문자열을 반환합니다."""
+    try:
+        import google.oauth2.service_account
+
+        credentials = google.oauth2.service_account.Credentials.from_service_account_file(CREDENTIALS_PATH)
+        
+        api_endpoint = f"{REGION}-aiplatform.googleapis.com"
+        client_options = {"api_endpoint": api_endpoint}
+        client = aiplatform.gapic.PredictionServiceClient(client_options=client_options, credentials=credentials)
+
+        with open(image_filepath, "rb") as f:
+            file_content = f.read()
+        encoded_content = base64.b64encode(file_content).decode("utf-8")
+        
+        instance = json_format.ParseDict({"content": encoded_content}, Value())
+        instances = [instance]
+        
+        endpoint_path = client.endpoint_path(
+            project=PROJECT_ID, location=REGION, endpoint=ENDPOINT_ID
+        )
+        
+        response = client.predict(endpoint=endpoint_path, instances=instances)
+        
+        if response.predictions:
+            top_prediction = dict(response.predictions[0])
+            display_names = top_prediction['displayNames']
+            confidences = top_prediction['confidences']
+            
+            max_confidence = max(confidences)
+            max_index = confidences.index(max_confidence)
+            
+            predicted_class = display_names[max_index]
+            print(f"Vertex AI 예측 결과: {predicted_class} (신뢰도: {max_confidence:.2%})")
+            return predicted_class
+        else:
+            print("Vertex AI 예측 결과를 받지 못했습니다.")
+            return "알 수 없음" # Fallback
+    except Exception as e:
+        print(f"Vertex AI 예측 오류: {e}")
+        return "알 수 없음" # Fallback
+
 
 # --- Flask 애플리케이션 설정 ---
 app = Flask(__name__)
@@ -115,91 +157,35 @@ def allowed_file(filename):
 
 # --- 분석 로직 헬퍼 함수 (XGBoost 모델 사용) ---
 def get_skin_scores(filepath):
-    """이미지 임베딩과 XGBoost 모델을 사용하여 피부 점수를 계산합니다."""
+    """Vertex AI API를 사용하여 피부 타입을 예측하고, 수분/주름/탄력은 임시 값을 반환합니다."""
     try:
-        import numpy as np
-        from tensorflow.keras.preprocessing import image
-        from tensorflow.keras.applications.resnet50 import preprocess_input
-        import pickle
-        import xgboost as xgb
+        skin_type_from_api = predict_skin_type_from_vertex_ai(filepath)
 
-        # 1. 전역 ResNet50 모델 사용
-        model = get_resnet_model()
-        if model is None:
-            raise Exception("ResNet50 모델을 로드할 수 없습니다")
-
-        # 이미지 불러오기 및 전처리
-        img = image.load_img(filepath, target_size=(224, 224))
-        x = image.img_to_array(img)
-        x = np.expand_dims(x, axis=0)
-        x = preprocess_input(x)
-
-        # 2. ResNet50으로 특성 추출 (2048차원)
-        features = model.predict(x, verbose=0)
-        embedding = features.flatten()
-
-        # 3. 특성 선택 (1000차원으로 축소)
-        selected_features = embedding[:1000].reshape(1, -1)
-
-        # 4. 표준화 (Z-score)
-        mean = np.mean(selected_features, axis=1, keepdims=True)
-        std = np.std(selected_features, axis=1, keepdims=True)
-        std = np.where(std == 0, 1, std)
-        scaled_features = (selected_features - mean) / std
-
-        # 5. XGBoost 모델 로드 및 예측
-        xgb_model_path = os.path.join(os.path.dirname(__file__), 'my_xgboost_model.pkl')
-        with open(xgb_model_path, 'rb') as f:
-            xgb_model = pickle.load(f)
-        
-        prediction = xgb_model.predict(scaled_features)
-        
-        # 6. 점수 정규화 (0-100 범위)
-        normalized_score = max(0, min(100, float(prediction[0])))
-
-        # 7. 각 항목별 점수 생성 (기존 로직과 유사하게)
-        variation = np.random.normal(0, 8)
+      
+        # 임시 점수 (API 개발 중이므로)
         scores = {
-            'moisture': max(0, min(100, normalized_score + variation)),
-            'elasticity': max(0, min(100, normalized_score - variation * 0.3)),
-            'wrinkle': max(0, min(100, 100 - normalized_score + variation * 0.2)),
-            'skin_type_score': normalized_score
+            'moisture': 50.0,
+            'elasticity': 50.0,
+            'wrinkle': 65.0,
+            'skin_type': skin_type_from_api # 피부 타입은 API에서 직접 받은 문자열
         }
-
         return scores
 
-    except (ImportError, FileNotFoundError) as e:
-        print(f"모델 로드 또는 예측에 필요한 파일을 찾을 수 없거나 라이브러리가 없습니다: {e}")
-        # Fallback scores
-        return {
-            'moisture': 50.0,
-            'elasticity': 50.0,
-            'wrinkle': 65.0,
-            'skin_type_score': 50.0
-        }
     except Exception as e:
         print(f"피부 분석 중 예상치 못한 오류 발생: {e}")
-        # Fallback scores
         return {
             'moisture': 50.0,
             'elasticity': 50.0,
             'wrinkle': 65.0,
-            'skin_type_score': 50.0
+            'skin_type': '알 수 없음'
         }
 
 def generate_recommendations(scores, username):
-    """점수를 기반으로 피부 타입, 고민, 추천 문구를 생성합니다."""
-    skin_type_score = scores.get('skin_type_score', 50)
-    if skin_type_score < 20:
-        skin_type = "건성"
-    elif skin_type_score < 40:
-        skin_type = "수부지"
-    elif skin_type_score < 60:
-        skin_type = "복합성(임시)"
-    elif skin_type_score < 80:
-        skin_type = "중성"
-    else:
-        skin_type = "지성"
+    """점수와 API에서 받은 피부 타입 문자열을 기반으로 피부 타입, 고민, 추천 문구를 생성합니다."""
+    # scores 딕셔너리에서 skin_type을 직접 사용
+    skin_type = scores.get('skin_type', '알 수 없음')
+
+    # 기존 skin_type_score를 사용하던 로직은 제거
 
     concern_scores = {k: v for k, v in scores.items() if k != 'skin_type_score'}
     all_scores_korean = {
@@ -406,6 +392,35 @@ def api_history():
         graph_wrinkle=graph_wrinkle
     )
 
+def resize_image_if_needed(filepath, max_size_mb=1.5):
+    """이미지 파일이 최대 크기를 초과하면 용량을 줄입니다."""
+    max_size_bytes = max_size_mb * 1024 * 1024
+    if os.path.getsize(filepath) > max_size_bytes:
+        try:
+            img = cv2.imread(filepath)
+            if img is None:
+                print(f"이미지 파일을 읽을 수 없습니다: {filepath}")
+                return
+
+            quality = 90
+            
+            while os.path.getsize(filepath) > max_size_bytes and quality > 10:
+                ext = os.path.splitext(filepath)[1].lower()
+                if ext in ['.jpg', '.jpeg']:
+                    params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+                elif ext == '.png':
+                    params = [cv2.IMWRITE_PNG_COMPRESSION, max(0, 9 - (90 - quality) // 10)]
+                else:
+                    params = []
+                
+                cv2.imwrite(filepath, img, params)
+                quality -= 5
+
+            print(f"이미지 용량 조정 완료: {filepath}")
+
+        except Exception as e:
+            print(f"이미지 리사이징 중 오류 발생: {e}")
+
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
     if 'user_id' not in session:
@@ -424,6 +439,10 @@ def analyze_image():
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
 
+    # 이미지 용량 조절 함수 호출
+    # Base64 인코딩 시 크기가 약 33% 증가하므로, API 제한(1.5MB)을 고려하여 파일 크기 제한을 1.0MB로 낮춥니다.
+    resize_image_if_needed(filepath, max_size_mb=1.0)
+
     if not is_face_image(filepath):
         flash("얼굴이 인식되지 않습니다. 얼굴이 보이는 사진을 업로드해주세요.")
         os.remove(filepath)
@@ -437,16 +456,19 @@ def analyze_image():
 
     reco_data = generate_recommendations(scores, session.get('username', '방문자'))
     
-    scores_serializable = {}
-    for key, value in scores.items():
-        if hasattr(value, 'item'):
-            scores_serializable[key] = float(value.item())
-        else:
-            scores_serializable[key] = float(value)
+    # scores 딕셔너리에서 skin_type을 직접 가져옴
+    skin_type = scores.get('skin_type', '알 수 없음')
+
+    # scores_serializable에 skin_type을 포함시키고, 기존 점수들은 float으로 변환
+    scores_serializable = {
+        'moisture': float(scores.get('moisture', 50.0)),
+        'elasticity': float(scores.get('elasticity', 50.0)),
+        'wrinkle': float(scores.get('wrinkle', 65.0)),
+        'skin_type': skin_type # 문자열 그대로 저장
+    }
     
     # --- Prepare data for the recommendations part ---
     db = get_db()
-    skin_type = reco_data['skin_type']
     concerns = reco_data['concerns_for_template']
     current_season = get_current_season()
     makeup = 'no' # Assuming default, or get from form if available
@@ -474,7 +496,6 @@ def analyze_image():
     session['recommendations_data'] = recommendations_data
 
     # Save analysis to DB
-    scores_serializable = {k: float(v.item() if hasattr(v, 'item') else v) for k, v in scores.items()}
     db.execute(
         'INSERT INTO analyses (user_id, skin_type, recommendation_text, scores_json, concerns_json, image_filename) VALUES (?, ?, ?, ?, ?, ?)',
         (session['user_id'], skin_type, reco_data['recommendation_text'], json.dumps(scores_serializable), json.dumps(concerns), filename)
@@ -482,7 +503,8 @@ def analyze_image():
     db.commit()
 
     # Prepare data for the result part
-    concern_scores = {k: v for k, v in scores.items() if k != 'skin_type_score'}
+    # main_score 계산 시 skin_type은 제외
+    concern_scores = {k: v for k, v in scores.items() if k not in ['skin_type']}
     main_score = sum(concern_scores.values()) / len(concern_scores) if concern_scores else 0
     result_summary = generate_result_summary(session.get('username', '방문자'), main_score, skin_type, reco_data['top_concerns_names'])
     
@@ -575,62 +597,63 @@ def get_current_season():
     else:
         return 'spring_fall'
 
-def get_recommended_moisturizer(skin_type, season):
-    """계절별 최적화된 보습제를 추천합니다."""
-    try:
-        db = get_db()
+# def get_recommended_moisturizer(skin_type, season):
+#     """계절별 최적화된 보습제를 추천합니다."""
+#     try:
+#         db = get_db()
         
-        if season == 'summer':
-            # 여름: 가벼운 제형 선호
-            query = """
-                SELECT * FROM products 
-                WHERE main_category = '크림' 
-                AND sub_category IN ('수분', '진정', '모공')
-                ORDER BY 
-                    CASE
-                        WHEN name LIKE '%젤%' OR name LIKE '%gel%' THEN 0
-                        WHEN name LIKE '%플루이드%' OR name LIKE '%fluid%' THEN 0
-                        WHEN name LIKE '%수딩%' OR name LIKE '%soothing%' THEN 1
-                        WHEN name LIKE '%워터%' OR name LIKE '%water%' THEN 1
-                        ELSE 2
-                    END, rank ASC
-                LIMIT 3
-            """
-        elif season == 'winter':
-            # 겨울: 리치한 제형 선호
-            query = """
-                SELECT * FROM products 
-                WHERE main_category = '크림' 
-                AND sub_category IN ('보습', '안티에이징')
-                ORDER BY 
-                    CASE
-                        WHEN name LIKE '%밤%' OR name LIKE '%balm%' THEN 0
-                        WHEN name LIKE '%리치%' OR name LIKE '%rich%' THEN 0
-                        WHEN name LIKE '%인텐스%' OR name LIKE '%intense%' THEN 0
-                        WHEN name LIKE '%장벽%' OR name LIKE '%barrier%' THEN 0
-                        WHEN name LIKE '%시카%' OR name LIKE '%cica%' THEN 1
-                        ELSE 2
-                    END, rank ASC
-                LIMIT 3
-            """
-        else:
-            # 환절기: 중간 제형
-            query = """
-                SELECT * FROM products 
-                WHERE main_category = '크림' 
-                AND sub_category IN ('수분', '보습', '진정')
-                ORDER BY rank ASC
-                LIMIT 3
-            """
+#         if season == 'summer':
+#             # 여름: 가벼운 제형 선호
+#             query = """
+#                 SELECT * FROM products 
+#                 WHERE main_category = '크림' 
+#                 AND sub_category IN ('수분', '진정', '모공')
+#                 ORDER BY 
+#                     CASE
+#                         WHEN name LIKE '%젤%' OR name LIKE '%gel%' THEN 0
+#                         WHEN name LIKE '%플루이드%' OR name LIKE '%fluid%' THEN 0
+#                         WHEN name LIKE '%수딩%' OR name LIKE '%soothing%' THEN 1
+#                         WHEN name LIKE '%워터%' OR name LIKE '%water%' THEN 1
+#                         ELSE 2
+#                     END, rank ASC
+#                 LIMIT 3
+#             """
+#         elif season == 'winter':
+#             # 겨울: 리치한 제형 선호
+#             query = """
+#                 SELECT * FROM products 
+#                 WHERE main_category = '크림' 
+#                 AND sub_category IN ('보습', '안티에이징')
+#                 ORDER BY 
+#                     CASE
+#                         WHEN name LIKE '%밤%' OR name LIKE '%balm%' THEN 0
+#                         WHEN name LIKE '%리치%' OR name LIKE '%rich%' THEN 0
+#                         WHEN name LIKE '%인텐스%' OR name LIKE '%intense%' THEN 0
+#                         WHEN name LIKE '%장벽%' OR name LIKE '%barrier%' THEN 0
+#                         WHEN name LIKE '%시카%' OR name LIKE '%cica%' THEN 1
+#                         ELSE 2
+#                     END, rank ASC
+#                 LIMIT 3
+#             """
+#         else:
+#             # 환절기: 중간 제형
+#             query = """
+#                 SELECT * FROM products 
+#                 WHERE main_category = '크림' 
+#                 AND sub_category IN ('수분', '보습', '진정')
+#                 ORDER BY rank ASC
+#                 LIMIT 3
+#             """
         
-        cursor = db.execute(query)
-        products = cursor.fetchall()
-        return [dict(product) for product in products]
+#         cursor = db.execute(query)
+#         products = cursor.fetchall()
+#         return [dict(product) for product in products]
         
-    except Exception as e:
-        print(f"보습제 추천 중 오류: {e}")
-        return []
-
+#     except Exception as e:
+#         print(f"보습제 추천 중 오류: {e}")
+#         return []   
+         
+         
 def get_hyper_personalized_cleanser(skin_type, makeup, concerns):
     """초개인화 클렌저 추천 함수"""
     try:
@@ -650,11 +673,15 @@ def get_hyper_personalized_cleanser(skin_type, makeup, concerns):
                 'first': ['클렌징오일', '클렌징워터'],
                 'second': ['클렌징폼', '클렌징젤', '클렌징비누']
             },
-            '민감성': {
+            '중성': {
                 'first': ['클렌징밤', '클렌징워터'],
                 'second': ['클렌징폼', '클렌징젤']
             },
-            '복합성': {
+            '복합 건성': {
+                'first': ['클렌징오일', '클렌징워터'],
+                'second': ['클렌징폼', '클렌징젤']
+            },
+            '복합 지성': {
                 'first': ['클렌징오일', '클렌징워터'],
                 'second': ['클렌징폼', '클렌징젤']
             }
@@ -684,6 +711,7 @@ def get_hyper_personalized_cleanser(skin_type, makeup, concerns):
             recommended_cleansers.append(second_cleanser)
         
         return recommended_cleansers
+     
         
     except Exception as e:
         print(f"클렌저 추천 중 오류: {e}")
@@ -752,217 +780,2552 @@ def get_cleanser_by_type_and_concerns(db, cleanser_type, concerns, step):
 
 
 
+def get_products_by_query(db, query, params=()):
+    """Helper function to fetch products and format them."""
+    products = db.execute(query, params).fetchall()
+    if not products:
+        return None, []
+    
+    primary = dict(products[0])
+    alternatives = [dict(p) for p in products[1:3]]
+    return primary, alternatives
+
+# ------------------- 모닝 루틴 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 def get_morning_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
-    """모닝 루틴 구조화된 추천"""
+    """5가지 피부 타입과 주요 고민에 따른 아침 루틴을 구조화하여 추천합니다."""
     steps = []
+    user_concerns = {c['name'] for c in concerns if c.get('name')}
     
-    # STEP 1: 아침 세안
-    step1 = {
-        "step_title": "STEP 1. 아침 세안",
-        "step_description": "밤사이 쌓인 유분만 가볍게 씻어내세요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    # 클렌저 추천
-    cleanser_query = """
-        SELECT * FROM products 
-        WHERE main_category = '클렌징' 
-        AND (name LIKE '%워터%' OR name LIKE '%젤%' OR name LIKE '%폼%')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    cleansers = db.execute(cleanser_query).fetchall()
-    if cleansers:
-        primary = dict(cleansers[0])
-        step1["primary_recommendation"] = primary
+    # ------------------- 공통 로직 -------------------
+    # step2_query, step2_params, step2_desc = None, [], ""
+    has_moisture_concern = '수분' in user_concerns
+    has_wrinkle_elasticity_concern = '주름' in user_concerns or '탄력' in user_concerns
+
+    # 계절 -> 피부 고민 : 주름,탄력 (o/x) -> 피부 타입            바꾸기!!!!! 간단하게 보여주기 식으로 만들면 됨.
+    # ------------------- 여름 -------------------  
+    if current_season == 'summer': 
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%약산성%' OR name LIKE '%스쿠알란%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 장벽을 보호하고 수분을 유지해주는 클렌징 제품을 사용하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "안티에이징 제품으로 주름과 탄력을 관리하고, 피부에 촉촉한 수분감을 더하세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%판테놀%' OR name LIKE '%고보습%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 안티에이징으로 하루를 시작하고, 빈틈없이 촉촉한 피부를 느껴보세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부에 자극을 주지 않으면서도 수분을 남겨주는 젤 타입이나 약산성 클렌저를 사용해 보세요.<br>과도한 세안은 오히려 피부를 건조하게 만들어 유분 분비를 촉진할 수 있습니다.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '수분', '모공')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%나이아신%' OR name LIKE '%나이아신%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%저분자%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 주름, 탄력 관리 제품으로 유수분 밸런스를 맞춰주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가벼운 사용감으로 피부 속까지 촉촉하게 채워요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드립니다.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너') 
+                    AND sub_category IN ('수분', '안티에이징', '리페어')  
+                    AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가볍게 수분 장벽을 지키고 탄력있는 피부를 가꿔요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%히알루론산%' OR name LIKE '%수분%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "촉촉함은 남기면서 노폐물만 깨끗하게 씻어내는 것이 중요합니다.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 안티에이징 제품으로 유수분 밸런스를 맞춰주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유분이 많은 T존은 가볍게, 건조한 U존은 얇게 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "T존은 산뜻하게, U존은 촉촉하게", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 안티에이징 제품으로 유수분 밸런스를 맞춰주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유분이 많은 T존은 가볍게, 건조한 U존은 얇게 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드립니다.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE middle_category In ('스킨/토너') 
+                AND sub_category IN ('수분', '안티에이징', '리페어')  
+                AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE middle_category = '크림' 
+                AND sub_category IN ('안티에이징', '리페어', '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가볍게 수분 장벽을 지키고 탄력있는 피부를 가꿔요.", "primary_recommendation": p3, "alternatives": a3}) 
         
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(cleansers))):
-            alt = dict(cleansers[i])
-            alternatives.append(alt)
-        step1["alternatives"] = alternatives
-    
-    steps.append(step1)
-    
-    # STEP 2: 피부 결 정돈 (토너)
-    toner_query = """
-        SELECT * FROM products 
-        WHERE main_category = '스킨케어' AND middle_category = '스킨/토너'
-        AND sub_category IN ('수분', '진정')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    toners = db.execute(toner_query).fetchall()
-    
-    step2 = {
-        "step_title": "STEP 2. 피부 결 정돈",
-        "step_description": "끈적임 없이 피부 속 수분을 채워줘요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    if toners:
-        primary = dict(toners[0])
-        step2["primary_recommendation"] = primary
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND name LIKE '%약산성%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "악산성 제품을 사용해 피부에 자극을 줄여요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 수분 보충으로 피부를 케어해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 안티에이징으로 하루를 시작하고, 빈틈없이 촉촉한 피부를 느껴보세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "과도한 세안은 오히려 피부를 건조하게 만들어 유분 분비를 촉진할 수 있어요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "가벼운 사용감의 제품을 사용하세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "리치하지 않은 사용감으로 촉촉하지만 산뜻한 피부를 느껴봐요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드려요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '스킨/토너'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 지금의 피부상태를 유지해요.", "primary_recommendation": p3, "alternatives": a3}) 
+           
+           
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%히알루론산%' OR name LIKE '%수분%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "자면서 나온 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부에 부족한 수분을 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('수분', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "피지 분비가 활발한 T존에는 산뜻하게, 건조한 U존에는 적은 양을 덧발라 촉촉함을 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "깨끗한 세안으로 하루를 상쾌하게 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "산뜻하지만 내 피부에 필요한 수분을 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유분이 많은 T존은 가볍게, 건조한 U존은 얇게 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+   
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드립니다.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE middle_category In ('스킨/토너') 
+                AND sub_category IN ('수분', '안티에이징', '리페어')  
+                AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE middle_category = '크림' 
+                AND sub_category IN ('안티에이징', '리페어', '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가볍게 수분 장벽을 지키고 탄력있는 피부를 가꿔요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+                    # 1단계: 순한 세안
+                    q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+                    
+                    # 2단계: 수분 공급
+                    q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+                    
+                    # 3단계: 기본 보습
+                    q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+            
+    #겨울   
+    elif current_season == 'winter': 
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND name LIKE '%약산성%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부에 자극을 주지 않는 약산성 클렌저를 사용하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%팩%' AND name NOT LIKE '%폼%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "추운 겨울, 안티에이징 제품으로 주름과 탄력을 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%판테놀%' OR name LIKE '%고보습%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 제품으로 탄력있고 촉촉한 피부를 느껴보세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "상쾌한 세안으로 기분 좋은 하루를 시작하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '수분', '모공')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%나이아신%' OR name LIKE '%나이아신%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%저분자%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 제품으로 주름과 탄력을 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "피부 겉은 산뜻하게 속은 촉촉하게 채워요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저를 사용해주세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('수분', '안티에이징', '리페어')  
+                    AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "차오르는 수분과 탄력감을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "크림으로 수분 장벽을 지키고 피부의 밸런스를 맞춰요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%히알루론산%' OR name LIKE '%수분%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "건조하지 않게 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부의 건조한 부분을 수분으로 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "T존은 가볍게, U존은 보습을 위해 얇게 여러 번 발라주세요..", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%모닝%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "T존은 번들거림 없이, U존은 촉촉하게", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "춥고 건조한 겨울, 부족한 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%크림%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "수분이 날아가지 않도록 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3}) 
         
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(toners))):
-            alt = dict(toners[i])
-            alternatives.append(alt)
-        step2["alternatives"] = alternatives
-    
-    steps.append(step2)
-    
-    # STEP 3: 수분 보습
-    moisturizer_query = """
-        SELECT * FROM products 
-        WHERE main_category = '스킨케어' AND middle_category = '크림'
-        AND (name LIKE '%젤%' OR name LIKE '%로션%' OR sub_category = '수분')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    moisturizers = db.execute(moisturizer_query).fetchall()
-    
-    step3 = {
-        "step_title": "STEP 3. 수분 보습",
-        "step_description": "가벼운 수분으로 하루를 시작해요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    if moisturizers:
-        primary = dict(moisturizers[0])
-        step3["primary_recommendation"] = primary
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "악산성 제품을 사용해 피부에 자극을 줄여요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 스킨 케어", "step_description": "건조한 피부를 위해 수분을 피부 속부터 꼼꼼히 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%' OR name LIKE '%리치%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "촉촉한 피부를 위해 크림을 꼼꼼히 발라요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "겨울에는 건조하지 않게 가볍게 세안을 해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "부족한 수분은 채우고 유분은 덜어내요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "촉촉한 크림으로 마무리:유수분 밸런스를 맞춰요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저 사용하여 피부밸런스를 유지해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '스킨/토너'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "잠자는 동안 마른 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "차가운 바람에 보호할 수 있게 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3})                 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND name LIKE '%약산성%' 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 속부터 꼼꼼하게 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "건조한 U존에는 적은 양으로 한번 더 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부에 부족한 수분감을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "번들거리지 않게 부족한 수분을 채워줘요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저 사용하여 피부밸런스를 유지해요.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '스킨/토너'
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "잠자는 동안 마른 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '크림'
+                AND sub_category IN ('수분', '기본',' '보습')   
+                AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "차가운 바람에 보호할 수 있게 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+                    # 1단계: 순한 세안
+                    q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+                    
+                    # 2단계: 수분 공급
+                    q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+                    
+                    # 3단계: 기본 보습
+                    q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
         
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(moisturizers))):
-            alt = dict(moisturizers[i])
-            alternatives.append(alt)
-        step3["alternatives"] = alternatives
-    
-    steps.append(step3)
-    
+        
+    # 환절기        
+    else:
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저를 사용해 피부 장벽을 보호해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%어성초%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "건조함 없이 촉촉하고 편안한 피부를 느껴봐요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%어성초%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감해진 피부를 진정시켜요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "저자극 클렌저를 사용해 가볍게 세안해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '수분', '모공')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%나이아신%' OR name LIKE '%병풀%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%저분자%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "자극 없이 편안한 피부를 느껴봐요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 제품으로 예민한 피부를 관리해요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "물세안이나 저자극 클렌저로 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼') 
+                    AND sub_category IN ('수분', '안티에이징', '리페어')  
+                    AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감한 피부에 영양을 더해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%스쿠알란%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기, 피부 지킴이.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 기분좋은 세안을 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 안티에이징과 함께 파부 장벽을 강화해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%' OR name LIKE '%병풀%' OR name LIKE '%어성초%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감한 피부 진정템.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가벼운 클렌징으로 산뜻한 하루를 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "부드러운 피부결을 만들어요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기, 번들거리지 않게 보습에 집중해보아요.", "primary_recommendation": p3, "alternatives": a3}) 
+        
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가벼운 물세안이나 저자극 클렌징을 해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "건조함 No, 촉촉함 Yes", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%' )
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 효과와 함께 피부 장벽을 보호해요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "밤사이 쌓인 노폐물만 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감해진 피부를 진정시키고 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기 맞춤 수분 케어", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안 또는 순한 클렌저 사용하기!", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '에센스/앰플/세럼'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%' OR name LIKE '%그린%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 안정 집중 관리!", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 피부 장벽을 강화해요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부에 자극이 되지 않게 가볍게 세안해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼'
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%어성초%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감해진 내 피부를 진정시켜요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('수분', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%어성초%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감해진 피부 완화하기.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 아침 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "자극없는 세안으로 내 피부를 지켜요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "편안한 피부 집중 케어.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%크림%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "탄탄한 피부 장벽 완성.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안 또는 순한 클렌저 사용하기!", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '에센스/앰플/세럼'
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%' OR name LIKE '%그린%' OR name LIKE '%병풀%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 안정 집중 관리!", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '크림'
+                AND sub_category IN ('수분', '기본',' '보습')   
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 피부 장벽을 강화해요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+            # 1단계: 순한 세안
+            q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+            p1, a1 = get_products_by_query(db, q1)
+            steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+            
+            # 2단계: 수분 공급
+            q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+            p2, a2 = get_products_by_query(db, q2)
+            steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+            
+            # 3단계: 기본 보습
+            q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+            p3, a3 = get_products_by_query(db, q3)
+            steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+                    
     return {
         "title": '" Morning "',
-        "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
+        "description": "피부 타입과 고민에 맞춘 아침 스킨케어로 산뜻한 하루를 시작해요.",
+        "steps": steps
+    }        
+
+
+
+
+
+
+
+
+# ------------------- 나이트 루틴 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 공통 : 레티놀, 기능성 에센스/앰플/세럼, 보습, 각질, 모공 케어, 브라이트닝, 아이케어, 안티에이징, 진정
+# 주름, 탄력 고민 -> 세라마이드, 모공 케어, 브라이트닝, 아이케어, 안티에이징, 각질
+# 주름, 탄력 X -> 세라마이드, 히알루론산, 어성초, 병풀, 수분, 브라이트닝, 각질, 아이케어, 진정
+def get_night_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
+    """5가지 피부 타입과 주요 고민에 따른 아침 루틴을 구조화하여 추천합니다."""
+    steps = []
+    user_concerns = {c['name'] for c in concerns if c.get('name')}
+    
+    # ------------------- 공통 로직 -------------------
+    # step2_query, step2_params, step2_desc = None, [], ""
+    has_moisture_concern = '수분' in user_concerns
+    has_wrinkle_elasticity_concern = '주름' in user_concerns or '탄력' in user_concerns
+
+    # 계절 -> 피부 고민 : 주름,탄력 (o/x) -> 피부 타입           
+    # ------------------- 여름 -------------------  
+    if current_season == 'summer': 
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                # ------------------- makeup == 'yes' -------------------
+                    if makeup == 'yes':
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND (name LIKE '%오일%' OR name LIKE '%밤%') 
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "피부 장벽은 지켜주면서도 메이크업은 깨끗하게 녹여내는 클렌징 오일이에요.", "primary_recommendation": p1, "alternatives": a1})
+                    # ------------------- makeup == 'no' -------------------
+                    else:
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                        AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                        AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "세안 후 촉촉함을 남겨주는 순한 클렌저에요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '브라이트닝')
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%판테놀%' OR name LIKE '%수분%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%레티놀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 수분 충전", "step_description": "수분을 채워 피부의 갈증을 달래주세요..", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 집중 케어  -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '아이케어', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 집중 케어", "step_description": "피부 상태에 맞춰 피부에 영양을 더해요.", "primary_recommendation": p3, "alternatives": a3}) 
+                # ------------------- 4단계: 보습 & 보호 -------------------
+                    q4 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name LIKE '%수분크림%' AND name LIKE '%수분 크림%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p4, a4 = get_products_by_query(db, q4)
+                    steps.append({"step_title": "STEP 4. 보습 & 보호", "step_description": "보습막을 형성해 촉촉함을 지켜주세요.", "primary_recommendation": p4, "alternatives": a4}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                # ------------------- makeup == 'yes' -------------------
+                    if makeup == 'yes':
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND (name LIKE '%오일%' OR name LIKE '%밤%' OR name LIKE '%팩%') 
+                        AND (name LIKE '%딥%' OR name LIKE '%모공%' OR name LIKE '%화산%' OR name LIKE '%각질%')
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "오일이나 밤으로 메이크업을 녹여낸 뒤 가벼운 클렌저로 마무리하세요.", "primary_recommendation": p1, "alternatives": a1})
+                    # ------------------- makeup == 'no' -------------------
+                    else:
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                        AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                        AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "오늘 하루 쌓인 피부의 노폐물을 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 직후 수분을 빠르게 채워주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 집중 케어  -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '아이케어', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 집중 케어", "step_description": "주름·탄력 등 고민 부위를 집중 관리하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+                # ------------------- 4단계: 보습 & 보호 -------------------
+                    q4 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND (name NOT LIKE "%리치%" OR name NOT LIKE "%딥%")
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p4, a4 = get_products_by_query(db, q4)
+                    steps.append({"step_title": "STEP 4. 보습 & 보호", "step_description": "가벼운 로션으로 피부 상태에 맞춰 마무리하세요..", "primary_recommendation": p4, "alternatives": a4}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                # ------------------- makeup == 'yes' -------------------
+                    if makeup == 'yes':
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND (name LIKE '%오일%' OR name LIKE '%밤%' OR name LIKE '%팩%') 
+                        AND (name LIKE '%딥%' OR name LIKE '%모공%' OR name LIKE '%화산%')
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "메이크업은 깨끗하게, 피부 장벽은 온전히 남기는 저녁 루틴의 시작.", "primary_recommendation": p1, "alternatives": a1})
+                    # ------------------- makeup == 'no' -------------------
+                    else:
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                        AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                        AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "자극 없이 노폐물만 씻어내 피부 본연의 촉촉함을 지켜주세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너'
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 pH를 맞추고 수분을 공급해 다음 단계 흡수를 도와주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 집중 케어  -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '아이케어', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 집중 케어", "step_description": "앰플의 농축된 성분으로 피부 고민에 바로 응답하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+                # ------------------- 4단계: 보습 & 보호 -------------------
+                    q4 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE "%리치%" OR name NOT LIKE "%딥%" AND name NOT LIKE '%수분크림%' AND name NOT '%수분 크림%'
+                    
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p4, a4 = get_products_by_query(db, q4)
+                    steps.append({"step_title": "STEP 4. 보습 & 보호", "step_description": "피부를 감싸는 보습막으로 편안한 밤을 선물하세요.", "primary_recommendation": p4, "alternatives": a4}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                # ------------------- makeup == 'yes' -------------------
+                    if makeup == 'yes':
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND (name LIKE '%오일%' OR name LIKE '%밤%' OR name LIKE '%팩%') 
+                        AND (name LIKE '%딥%' OR name LIKE '%모공%' OR name LIKE '%화산%')
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "메이크업을 부드럽게 녹여주는 클렌징.", "primary_recommendation": p1, "alternatives": a1})
+                    # ------------------- makeup == 'no' -------------------
+                    else:
+                        q1 = """
+                        SELECT * FROM products WHERE main_category = '클렌징' 
+                        AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                        AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                        AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                        ORDER BY rank ASC LIMIT 3"
+                        """
+                        p1, a1 = get_products_by_query(db, q1)
+                        steps.append({"step_title": "STEP 1. 저녁 세안", "step_description": "메이크업 없는 날엔 순한 클렌저로 가볍게 세안하세요", "primary_recommendation": p1, "alternatives": a1})
+
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 수분 충전", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 안티에이징 제품으로 유수분 밸런스를 맞춰주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 집중 케어  -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '아이케어', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 집중 케어", "step_description": "앰플의 농축된 성분으로 피부 고민에 바로 응답하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+                # ------------------- 4단계: 보습 & 보호 -------------------
+                    q4 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE "%리치%" OR name NOT LIKE "%딥%" AND name NOT LIKE '%수분크림%' AND name NOT '%수분 크림%'
+                    
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p4, a4 = get_products_by_query(db, q4)
+                    steps.append({"step_title": "STEP 4. 보습 & 보호", "step_description": "피부를 감싸는 보습막으로 편안한 밤을 선물하세요.", "primary_recommendation": p4, "alternatives": a4}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "T존은 산뜻하게, U존은 촉촉하게", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 안티에이징 제품으로 유수분 밸런스를 맞춰주세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유분이 많은 T존은 가볍게, 건조한 U존은 얇게 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+                # ------------------- 1단계: 저녁 세안 -------------------
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드립니다.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE middle_category In ('스킨/토너') 
+                AND sub_category IN ('수분', '안티에이징', '리페어')  
+                AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE middle_category = '크림' 
+                AND sub_category IN ('안티에이징', '리페어', '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가볍게 수분 장벽을 지키고 탄력있는 피부를 가꿔요.", "primary_recommendation": p3, "alternatives": a3}) 
+        
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND name LIKE '%약산성%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "악산성 제품을 사용해 피부에 자극을 줄여요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 수분 보충으로 피부를 케어해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 안티에이징으로 하루를 시작하고, 빈틈없이 촉촉한 피부를 느껴보세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "과도한 세안은 오히려 피부를 건조하게 만들어 유분 분비를 촉진할 수 있어요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "가벼운 사용감의 제품을 사용하세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "리치하지 않은 사용감으로 촉촉하지만 산뜻한 피부를 느껴봐요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드려요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '스킨/토너'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 지금의 피부상태를 유지해요.", "primary_recommendation": p3, "alternatives": a3}) 
+           
+           
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%히알루론산%' OR name LIKE '%수분%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "자면서 나온 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부에 부족한 수분을 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 집중 케어  -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '아이케어', '모공')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 집중 케어", "step_description": "앰플의 농축된 성분으로 피부 고민에 바로 응답하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+                # ------------------- 4단계: 보습 & 보호 -------------------
+                    q4 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%수분크림%' AND name NOT '%수분 크림%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p4, a4 = get_products_by_query(db, q4)
+                    steps.append({"step_title": "STEP 4. 보습 & 보호", "step_description": "피부를 감싸는 보습막으로 편안한 밤을 선물하세요.", "primary_recommendation": p4, "alternatives": a4}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "깨끗한 세안으로 하루를 상쾌하게 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "산뜻하지만 내 피부에 필요한 수분을 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유분이 많은 T존은 가볍게, 건조한 U존은 얇게 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+   
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+            # ------------------- 1단계: 저녁 세안 -------------------
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "유수분 밸런스가 깨지지 않도록 가볍게 물세안 또는 순한 클렌저 사용을 추천드립니다.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE middle_category In ('스킨/토너') 
+                AND sub_category IN ('수분', '안티에이징', '리페어')  
+                AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "즉각적인 탄력과 수분 충전을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE middle_category = '크림' 
+                AND sub_category IN ('안티에이징', '리페어', '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "가볍게 수분 장벽을 지키고 탄력있는 피부를 가꿔요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+            # 1단계: 순한 세안
+            q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+            p1, a1 = get_products_by_query(db, q1)
+            steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+            
+            # 2단계: 수분 공급
+            q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+            p2, a2 = get_products_by_query(db, q2)
+            steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+            
+            # 3단계: 기본 보습
+            q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+            p3, a3 = get_products_by_query(db, q3)
+            steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+          
+    #겨울   
+    elif current_season == 'winter': 
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND name LIKE '%약산성%'
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부에 자극을 주지 않는 약산성 클렌저를 사용하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%팩%' AND name NOT LIKE '%폼%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "추운 겨울, 안티에이징 제품으로 주름과 탄력을 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%판테놀%' OR name LIKE '%고보습%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 제품으로 탄력있고 촉촉한 피부를 느껴보세요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "상쾌한 세안으로 기분 좋은 하루를 시작하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '수분', '모공')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%나이아신%' OR name LIKE '%나이아신%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%저분자%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 끈적임 없이 가볍게 흡수되는 제품으로 주름과 탄력을 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "피부 겉은 산뜻하게 속은 촉촉하게 채워요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저를 사용해주세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('수분', '안티에이징', '리페어')  
+                    AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "차오르는 수분과 탄력감을 느껴보세요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%스쿠알란%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "크림으로 수분 장벽을 지키고 피부의 밸런스를 맞춰요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%' OR name LIKE '%히알루론산%' OR name LIKE '%수분%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "건조하지 않게 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부의 건조한 부분을 수분으로 채워줘요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "T존은 가볍게, U존은 보습을 위해 얇게 여러 번 발라주세요..", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%모닝%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "T존은 번들거림 없이, U존은 촉촉하게", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "춥고 건조한 겨울, 부족한 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%크림%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "수분이 날아가지 않도록 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3}) 
+        
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "악산성 제품을 사용해 피부에 자극을 줄여요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 스킨 케어", "step_description": "건조한 피부를 위해 수분을 피부 속부터 꼼꼼히 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%' OR name LIKE '%리치%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "촉촉한 피부를 위해 크림을 꼼꼼히 발라요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "겨울에는 건조하지 않게 가볍게 세안을 해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "부족한 수분은 채우고 유분은 덜어내요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "촉촉한 크림으로 마무리:유수분 밸런스를 맞춰요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저 사용하여 피부밸런스를 유지해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '스킨/토너'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "잠자는 동안 마른 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "차가운 바람에 보호할 수 있게 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3})                 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND name LIKE '%약산성%' 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 속부터 꼼꼼하게 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "건조한 U존에는 적은 양으로 한번 더 덧발라주세요.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 노폐물만 가볍게 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "내 피부에 부족한 수분감을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "번들거리지 않게 부족한 수분을 채워줘요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            else:
+            # ------------------- 1단계: 저녁 세안 -------------------
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안이나 순한 클렌저 사용하여 피부밸런스를 유지해요.", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '스킨/토너'
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%'OR name LIKE '%그린%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "잠자는 동안 마른 수분을 채워요.", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '크림'
+                AND sub_category IN ('수분', '기본',' '보습')   
+                AND (name LIKE '%펩타이드%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%병풀%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "차가운 바람에 보호할 수 있게 크림을 발라줘요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+            # 1단계: 순한 세안
+            q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+            p1, a1 = get_products_by_query(db, q1)
+            steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+            
+            # 2단계: 수분 공급
+            q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+            p2, a2 = get_products_by_query(db, q2)
+            steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+            
+            # 3단계: 기본 보습
+            q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+            p3, a3 = get_products_by_query(db, q3)
+            steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3}) 
+                
+    # 환절기       
+    else:
+        # 고민 : 계절 -> 주름,탄력 ox -> 피부타입
+        if has_wrinkle_elasticity_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저를 사용해 피부 장벽을 보호해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%어성초%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "건조함 없이 촉촉하고 편안한 피부를 느껴봐요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%어성초%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감해진 피부를 진정시켜요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "저자극 클렌저를 사용해 가볍게 세안해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '에센스/앰플/세럼' 
+                    AND sub_category IN ('안티에이징', '수분', '모공')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%나이아신%' OR name LIKE '%병풀%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%비타민%' OR name LIKE '%저분자%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "자극 없이 편안한 피부를 느껴봐요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 제품으로 예민한 피부를 관리해요.", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '기본')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "물세안이나 저자극 클렌저로 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼') 
+                    AND sub_category IN ('수분', '안티에이징', '리페어')  
+                    AND (name LIKE '%나이아신%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%히알루론산%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감한 피부에 영양을 더해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%히알루론산%' OR name LIKE '%스쿠알란%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기, 피부 지킴이.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "약산성 클렌저로 기분좋은 세안을 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('에센스/앰플/세럼') 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%캡슐%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "세안 후에는 안티에이징과 함께 파부 장벽을 강화해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%비타민%' OR name LIKE '%나이아신%' OR name LIKE '%세라마이드%' OR name LIKE '%병풀%' OR name LIKE '%어성초%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감한 피부 진정템.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('안티에이징', '리페어', '수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가벼운 클렌징으로 산뜻한 하루를 시작해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%리프팅%' OR name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "부드러운 피부결을 만들어요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR  name LIKE '%젤%')
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%라이트%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기, 번들거리지 않게 보습에 집중해보아요.", "primary_recommendation": p3, "alternatives": a3}) 
+        
+        # 고민 : 수분 -> 피부 타입과 연관ㅇ
+        elif has_moisture_concern: 
+            # ------------------- 💧 건성 (Dry) -------------------
+            if skin_type == 'Dry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%밀크%' OR name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%워터%' OR name LIKE '%크림%') 
+                    AND (name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가벼운 물세안이나 저자극 클렌징을 해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category In ('스킨/토너', '에센스/앰플/세럼')
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE "%스킨%" OR name LIKE "%토너%" OR name LIKE '%세럼%')
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%촉촉%' OR name LIKE '%수분%' OR name LIKE '%나이아신%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "건조함 No, 촉촉함 Yes", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('수분', '보습', '기본')
+                    AND (name LIKE '%세라마이드%' OR name LIKE '%스쿠알란%' OR name LIKE '%히알루론산%' OR name LIKE '%고보습%' )
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "안티에이징 효과와 함께 피부 장벽을 보호해요.", "primary_recommendation": p3, "alternatives": a3}) 
+
+            # ------------------- ✨ 지성 (Oily) -------------------
+            elif skin_type == 'Oily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본', '보습') 
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%') 
+                    AND (name LIKE '%티트리%' OR name LIKE '%그린%' OR name LIKE '%약산성%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "밤사이 쌓인 노폐물만 씻어내요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE middle_category = '스킨/토너' 
+                    AND sub_category IN ('수분', '기본', '보습')                
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%그린%' OR name LIKE '%녹차%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감해진 피부를 진정시키고 관리해요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE middle_category = '크림' 
+                    AND sub_category IN ('안티에이징', '리페어')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%수분 크림%' OR name LIKE '%젤%' OR name LIKE '%워터 크림%' OR name LIKE '%로션%')
+                    AND (name LIKE '%녹차%' OR name LIKE '%병풀%' OR name LIKE '%나이아신%' OR name LIKE '%그린%'  OR name LIKE '%알로에%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "환절기 맞춤 수분 케어", "primary_recommendation": p3, "alternatives": a3}) 
+                    
+            # ------------------- ⚖️ 중성 (Normal) -------------------
+            elif skin_type == 'Normal':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안 또는 순한 클렌저 사용하기!", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '에센스/앰플/세럼'
+                    AND sub_category IN ('수분', '기본',' '보습')  
+                    AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%' OR name LIKE '%그린%' OR name LIKE '%병풀%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 안정 집중 관리!", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '스킨케어'
+                    AND middle_category = '크림'
+                    AND sub_category IN ('수분', '기본',' '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 피부 장벽을 강화해요.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 복합 건성 (CombinationDry) -------------------
+            elif skin_type == 'CombinationDry':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '보습')   
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%세이프%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부에 자극이 되지 않게 가볍게 세안해요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '에센스/앰플/세럼'
+                    AND sub_category IN ('수분', '보습')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%플러스%' OR name LIKE '%저분자%' OR name LIKE '%어성초%' OR name LIKE '%수딩%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "민감해진 내 피부를 진정시켜요.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('수분', '보습')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%펩타이드%' OR name LIKE '%아데노신%' OR name LIKE '%병풀%' OR name LIKE '%어성초%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "민감해진 피부 완화하기.", "primary_recommendation": p3, "alternatives": a3}) 
+               
+            # ------------------- 복합 지성 (CombinationOily) -------------------
+            elif skin_type == 'CombinationOily':
+                # ------------------- 1단계: 저녁 세안 -------------------
+                    q1 = """
+                    SELECT * FROM products WHERE main_category = '클렌징' 
+                    AND sub_category IN ('수분', '모공')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                    AND (name LIKE '%약산성%' OR name LIKE '%저자극%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p1, a1 = get_products_by_query(db, q1)
+                    steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "자극없는 세안으로 내 피부를 지켜요.", "primary_recommendation": p1, "alternatives": a1})
+                # ------------------- 2단계: 수분 충전  -------------------
+                    q2 = """
+                    SELECT * FROM products WHERE main_category = '스킨/토너' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND (name LIKE '%병풀%' OR name LIKE '%저분자%' OR name LIKE '%수딩%' OR name LIKE '%녹차%' OR name LIKE '%그린%') 
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p2, a2 = get_products_by_query(db, q2)
+                    steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "편안한 피부 집중 케어.", "primary_recommendation": p2, "alternatives": a2}) 
+                # ------------------- 3단계: 보습 & 보호 -------------------
+                    q3 = """
+                    SELECT * FROM products WHERE main_category = '크림' 
+                    AND sub_category IN ('모공', '수분')  
+                    AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                    AND (name LIKE '%로션%' OR name LIKE '%젤%' OR name LIKE '%크림%')
+                    AND (name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%세라마이드%')
+                    ORDER BY rank ASC LIMIT 3"
+                    """
+                    p3, a3 = get_products_by_query(db, q3)
+                    steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "탄탄한 피부 장벽 완성.", "primary_recommendation": p3, "alternatives": a3}) 
+            # ------------------- 기본 (Fallback) -------------------
+            # 중성 피부 루틴을 기본값으로 사용
+            # ------------------- 1단계: 저녁 세안 -------------------
+            else:
+                q1 = """
+                SELECT * FROM products WHERE main_category = '클렌징' 
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%오일%' AND name NOT LIKE '%팩%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%워터%' OR name LIKE '%폼%' OR name LIKE '%클렌저%' OR name LIKE '%젤%') 
+                AND (name LIKE '%약산성%' OR name LIKE '%세이프%' OR name LIKE '%그린%' OR name LIKE '%모닝%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p1, a1 = get_products_by_query(db, q1)
+                steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "가볍게 물세안 또는 순한 클렌저 사용하기!", "primary_recommendation": p1, "alternatives": a1})
+            # ------------------- 2단계: 수분 충전  -------------------
+                q2 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '에센스/앰플/세럼'
+                AND sub_category IN ('수분', '기본',' '보습')  
+                AND (name LIKE '%저분자%' OR name LIKE '%병풀%' OR name LIKE '%히알루론산%' OR name LIKE '%녹차%' OR name LIKE '%그린%' OR name LIKE '%병풀%') 
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p2, a2 = get_products_by_query(db, q2)
+                steps.append({"step_title": "STEP 2. 집중 케어", "step_description": "피부 안정 집중 관리!", "primary_recommendation": p2, "alternatives": a2}) 
+            # ------------------- 3단계: 보습 & 보호 -------------------
+                q3 = """
+                SELECT * FROM products WHERE main_category = '스킨케어'
+                AND middle_category = '크림'
+                AND sub_category IN ('수분', '기본',' '보습')   
+                AND name NOT LIKE '%딥%' AND name NOT LIKE '%리치%'
+                AND (name LIKE '%히알루론산%' OR name LIKE '%항%' OR name LIKE '%병풀%')
+                ORDER BY rank ASC LIMIT 3"
+                """
+                p3, a3 = get_products_by_query(db, q3)
+                steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "유수분 밸런스를 지키며 피부 장벽을 강화해요.", "primary_recommendation": p3, "alternatives": a3}) 
+        else: # 고민이 없는 경우를 위한 기본 루틴
+            # 1단계: 순한 세안
+            q1 = "SELECT * FROM products WHERE main_category = '클렌징' AND name LIKE '%약산성%' AND name NOT LIKE '%딥%' ORDER BY rank ASC LIMIT 3"
+            p1, a1 = get_products_by_query(db, q1)
+            steps.append({"step_title": "STEP 1. 아침 세안", "step_description": "피부 유수분 밸런스를 깨뜨리지 않는 약산성 클렌저로 부드럽게 세안하세요.", "primary_recommendation": p1, "alternatives": a1})
+            
+            # 2단계: 수분 공급
+            q2 = "SELECT * FROM products WHERE middle_category = '스킨/토너' AND sub_category = '수분' ORDER BY rank ASC LIMIT 3"
+            p2, a2 = get_products_by_query(db, q2)
+            steps.append({"step_title": "STEP 2. 수분 공급", "step_description": "가벼운 수분 토너로 피부결을 정돈하고 기초 수분을 공급합니다.", "primary_recommendation": p2, "alternatives": a2})
+            
+            # 3단계: 기본 보습
+            q3 = "SELECT * FROM products WHERE middle_category = '크림' AND sub_category = '수분' AND name NOT LIKE '%리치%' ORDER BY rank ASC LIMIT 3"
+            p3, a3 = get_products_by_query(db, q3)
+            steps.append({"step_title": "STEP 3. 보습 & 보호", "step_description": "산뜻한 수분 크림으로 수분막을 형성하여 건강한 피부를 유지하세요.", "primary_recommendation": p3, "alternatives": a3})  
+
+    return {
+        "title": '" Nighit "',
+        "description": "피부 타입과 고민에 맞춘 스킨케어로 하루를 마무리해요.",
         "steps": steps
     }
 
-def get_night_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
-    """나이트 루틴 구조화된 추천"""
-    steps = []
-    
-    # STEP 1: 이중 세안
-    step1 = {
-        "step_title": "STEP 1. 꼼꼼한 이중 세안",
-        "step_description": "하루 동안 쌓인 노폐물을 씻어내요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    if makeup == 'yes':
-        # 메이크업 제거용 클렌저
-        cleanser_query = """
-            SELECT * FROM products 
-            WHERE main_category = '클렌징' 
-            AND (name LIKE '%오일%' OR name LIKE '%밤%' OR name LIKE '%폼%')
-            ORDER BY rank ASC
-            LIMIT 3
-        """
-        step1["step_description"] = "메이크업과 노폐물을 깨끗하게 제거해요."
-    else:
-        # 일반 클렌저
-        cleanser_query = """
-            SELECT * FROM products 
-            WHERE main_category = '클렌징' 
-            AND (name LIKE '%폼%' OR name LIKE '%젤%' OR name LIKE '%워터%')
-            ORDER BY rank ASC
-            LIMIT 3
-        """
-    
-    cleansers = db.execute(cleanser_query).fetchall()
-    if cleansers:
-        primary = dict(cleansers[0])
-        step1["primary_recommendation"] = primary
-        
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(cleansers))):
-            alt = dict(cleansers[i])
-            alternatives.append(alt)
-        step1["alternatives"] = alternatives
-    
-    steps.append(step1)
-    
-    # STEP 2: 집중 케어 (세럼)
-    serum_query = """
-        SELECT * FROM products 
-        WHERE main_category = '스킨케어' AND middle_category = '에센스/앰플/세럼'
-        AND sub_category IN ('보습', '리페어', '안티에이징')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    serums = db.execute(serum_query).fetchall()
-    
-    step2 = {
-        "step_title": "STEP 2. 집중 케어",
-        "step_description": "피부 깊숙이 영양을 공급해요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    if serums:
-        primary = dict(serums[0])
-        step2["primary_recommendation"] = primary
-        
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(serums))):
-            alt = dict(serums[i])
-            alternatives.append(alt)
-        step2["alternatives"] = alternatives
-    
-    steps.append(step2)
-    
-    # STEP 3: 마무리 보습 (크림)
-    cream_query = """
-        SELECT * FROM products 
-        WHERE main_category = '스킨케어' AND middle_category = '크림'
-        AND (name LIKE '%밤%' OR name LIKE '%크림%' OR sub_category = '보습')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    creams = db.execute(cream_query).fetchall()
-    
-    step3 = {
-        "step_title": "STEP 3. 마무리 보습",
-        "step_description": "피부 장벽을 강화하고 수분을 잠가요.",
-        "primary_recommendation": None,
-        "alternatives": []
-    }
-    
-    if creams:
-        primary = dict(creams[0])
-        step3["primary_recommendation"] = primary
-        
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(creams))):
-            alt = dict(creams[i])
-            alternatives.append(alt)
-        step3["alternatives"] = alternatives
-    
-    steps.append(step3)
-    
-    return {
-        "title": '" Night "',
-        "description": "하루 동안 쌓인 노폐물을 씻어내고 피부 깊숙이 영양을 공급해요.",
-        "steps": steps
-    }
 
 def get_recommended_products(skin_type, concerns, scores, makeup='no'):
     """기존 호환성을 위한 래퍼 함수"""

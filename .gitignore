@@ -28,7 +28,8 @@ dist/
 
 # Database files
 *.db
-*.sqlite3
+*.sqlite3.env
 
 # Environment variables
 .env
+instance/skintype-api.json
