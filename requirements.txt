@@ -1,0 +1,9 @@
+flask
+opencv-python
+tensorflow
+numpy
+xgboost
+gunicorn
+click
+werkzeug
+python-dotenv
