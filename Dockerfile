@@ -11,8 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 나머지 애플리케이션 코드를 복사합니다.
 COPY . .
 
-# 이 컨테이너는 8080번 포트를 사용합니다.
-EXPOSE 8080
-
 # Gunicorn을 사용하여 애플리케이션을 실행합니다.
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "0", "app:app"]

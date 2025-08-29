@@ -10,7 +10,7 @@
             <img id="image-preview" src="#" alt="업로드된 이미지 미리보기" style="display: none;">
         </div>
         
-        <form id="upload-form" action="/analyze" method="post" enctype="multipart/form-data">
+        <form id="upload-form" action="{{ url_for('analysis.analyze') }}" method="post" enctype="multipart/form-data">
             <div class="button-group">
                 <label for="file-upload" class="file-input-label">파일 선택</label>
                 <input type="file" id="file-upload" name="image" accept="image/*" required>

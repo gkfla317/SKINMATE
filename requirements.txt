@@ -6,4 +6,6 @@ xgboost
 gunicorn
 click
 werkzeug
-python-dotenv
+python-magic-bin
+pillow
+marshmallow

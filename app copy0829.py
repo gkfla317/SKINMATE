@@ -1,95 +1,45 @@
 import os
+import sys
 import cv2
 import sqlite3
 import json
 import shutil
+import subprocess
 import click
-import secrets
-import hashlib
-import time
-import logging
-from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, session, g, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from datetime import datetime, timedelta
 
-# 로깅 설정
-logger = logging.getLogger(__name__)
-
 
 # TensorFlow 경고 메시지 숨기기
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-class ModelManager:
-    """AI 모델 관리 클래스"""
-    
-    def __init__(self):
-        self._resnet_model = None
-        self._model_loaded = False
-    
-    def get_resnet_model(self):
-        """ResNet50 모델을 안전하게 로드하고 반환"""
-        if not self._model_loaded:
-            try:
-                from tensorflow.keras.applications.resnet50 import ResNet50
-                self._resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
-                self._model_loaded = True
-                logger.info("ResNet50 모델 로드 완료")
-            except Exception as e:
-                logger.error(f"ResNet50 모델 로드 실패: {e}")
-                self._resnet_model = None
-                self._model_loaded = False
-        return self._resnet_model
-    
-    def is_model_loaded(self):
-        """모델 로드 상태 확인"""
-        return self._model_loaded and self._resnet_model is not None
-    
-    def clear_model(self):
-        """메모리 정리를 위한 모델 해제"""
-        self._resnet_model = None
-        self._model_loaded = False
-        logger.info("모델 메모리 해제 완료")
-
-# 모델 매니저 인스턴스
-model_manager = ModelManager()
+# --- 전역 변수로 ResNet50 모델 로드 ---
+_resnet_model = None
+def get_resnet_model():
+    """ResNet50 모델을 전역 변수로 한 번만 로드"""
+    global _resnet_model
+    if _resnet_model is None:
+        try:
+            from tensorflow.keras.applications.resnet50 import ResNet50
+            _resnet_model = ResNet50(weights='imagenet', include_top=False, pooling='avg')
+            print("ResNet50 모델 로드 완료")
+        except Exception as e:
+            print(f"ResNet50 모델 로드 실패: {e}")
+            _resnet_model = None
+    return _resnet_model
 
 # --- Flask 애플리케이션 설정 ---
 app = Flask(__name__)
 app.config.from_mapping(
-    SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
+    SECRET_KEY='supersecretkey', # 세션 관리를 위한 비밀 키
     DATABASE=os.path.join(app.instance_path, 'skinmate.sqlite'),
     UPLOAD_FOLDER = 'uploads'
 )
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-
-# 파일 업로드 보안 설정
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif']
-
-def secure_file_upload(file, user_id):
-    """안전한 파일 업로드 처리"""
-    # 파일 크기 검증
-    file.seek(0, 2)  # 파일 끝으로 이동
-    file_size = file.tell()
-    file.seek(0)  # 처음으로 복귀
-    
-    if file_size > MAX_FILE_SIZE:
-        raise ValueError(f"파일 크기가 너무 큽니다: {file_size} bytes")
-    
-    if file_size == 0:
-        raise ValueError("빈 파일은 업로드할 수 없습니다")
-    
-    # 안전한 파일명 생성
-    file_ext = Path(file.filename).suffix.lower()
-    timestamp = int(time.time())
-    file_hash = hashlib.md5(f"{user_id}_{timestamp}_{file.filename}".encode()).hexdigest()[:8]
-    secure_filename_new = f"user_{user_id}_{timestamp}_{file_hash}{file_ext}"
-    
-    return secure_filename_new
 
 # --- 커스텀 템플릿 필터 ---
 def fromjson(json_string):
@@ -173,8 +123,8 @@ def get_skin_scores(filepath):
         import pickle
         import xgboost as xgb
 
-        # 1. 모델 매니저를 통한 ResNet50 모델 로드
-        model = model_manager.get_resnet_model()
+        # 1. 전역 ResNet50 모델 사용
+        model = get_resnet_model()
         if model is None:
             raise Exception("ResNet50 모델을 로드할 수 없습니다")
 
@@ -296,7 +246,7 @@ def generate_recommendations(scores, username):
     elif '수분' in top_concerns_names:
         product_recommendation = "히알루론산과 글리세린 같은 뛰어난 보습 성분이 포함된 제품으로 피부 깊숙이 수분을 채워주세요."
     elif '주름' in top_concerns_names:
-        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 생기 있는 피부로 관리하세요."
+        product_recommendation = "레티놀과 비타민 C가 들어간 주름 개선 제품으로 피부 재생을 돕고 탄력 있는 피부로 관리하세요."
     elif '탄력' in top_concerns_names:
         product_recommendation = "펩타이드와 콜라겐 성분이 함유된 제품으로 피부 결을 단단하게 하고 건강한 탄력을 되찾아 보세요."
 
@@ -470,13 +420,9 @@ def analyze_image():
         flash('허용되지 않는 파일 형식입니다.')
         return redirect(url_for('analysis'))
 
-    try:
-        filename = secure_file_upload(file, session['user_id'])
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-    except ValueError as e:
-        flash(f'파일 업로드 실패: {str(e)}')
-        return redirect(url_for('analysis'))
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(filepath)
 
     if not is_face_image(filepath):
         flash("얼굴이 인식되지 않습니다. 얼굴이 보이는 사진을 업로드해주세요.")
@@ -498,73 +444,36 @@ def analyze_image():
         else:
             scores_serializable[key] = float(value)
     
-    # --- Prepare data for the recommendations part ---
+    session['skin_analysis_results'] = {
+        'skin_type': reco_data['skin_type'], 
+        'concerns': reco_data['concerns_for_template'], 
+        'recommendation_text': reco_data['recommendation_text'], 
+        'scores': scores_serializable
+    }
+    
     db = get_db()
-    skin_type = reco_data['skin_type']
-    concerns = reco_data['concerns_for_template']
-    current_season = get_current_season()
-    makeup = 'no' # Assuming default, or get from form if available
-
-    morning_routine = get_morning_routine_structure(db, skin_type, concerns, current_season, makeup)
-    night_routine = get_night_routine_structure(db, skin_type, concerns, current_season, makeup)
+    scores_serializable = {}
+    for key, value in scores.items():
+        if hasattr(value, 'item'):
+            scores_serializable[key] = float(value.item())
+        else:
+            scores_serializable[key] = float(value)
     
-    now = datetime.now()
-    user_info = {
-        "username": session.get('username', '방문자'),
-        "date_info": {"year": now.year, "month": now.month, "day": now.day},
-        "skin_type": skin_type,
-        "concerns": concerns,
-        "season": current_season,
-        "makeup": makeup
-    }
-    
-    recommendations_data = {
-        "user_info": user_info,
-        "morning_routine": morning_routine,
-        "night_routine": night_routine
-    }
-
-    # Store recommendations in session for the new routines page
-    session['recommendations_data'] = recommendations_data
-
-    # Save analysis to DB
-    scores_serializable = {k: float(v.item() if hasattr(v, 'item') else v) for k, v in scores.items()}
     db.execute(
         'INSERT INTO analyses (user_id, skin_type, recommendation_text, scores_json, concerns_json, image_filename) VALUES (?, ?, ?, ?, ?, ?)',
-        (session['user_id'], skin_type, reco_data['recommendation_text'], json.dumps(scores_serializable), json.dumps(concerns), filename)
+        (session['user_id'], reco_data['skin_type'], reco_data['recommendation_text'], json.dumps(scores_serializable), json.dumps(reco_data['concerns_for_template']), filename)
     )
     db.commit()
 
-    # Prepare data for the result part
     concern_scores = {k: v for k, v in scores.items() if k != 'skin_type_score'}
-    main_score = sum(concern_scores.values()) / len(concern_scores) if concern_scores else 0
-    result_summary = generate_result_summary(session.get('username', '방문자'), main_score, skin_type, reco_data['top_concerns_names'])
+    main_score = sum(concern_scores.values()) / len(concern_scores)
+    result_summary = generate_result_summary(session.get('username', '방문자'), main_score, reco_data['skin_type'], reco_data['top_concerns_names'])
     
-    # Move file
     static_dir = os.path.join('static', 'uploads_temp')
     if not os.path.exists(static_dir): os.makedirs(static_dir)
     shutil.move(filepath, os.path.join(static_dir, filename))
 
-    # Render the combined result.html with all data
-    return render_template(
-        'result.html', 
-        main_score=main_score, 
-        scores=concern_scores, 
-        uploaded_image=url_for('static', filename=f'uploads_temp/{filename}'), 
-        result_summary=result_summary,
-        recommendations=recommendations_data,
-        skin_type=skin_type,
-        # Pass original full scores dict for face icons if needed
-        original_scores=scores_serializable
-    )
-
-@app.route('/routines')
-def routines():
-    recommendations = session.get('recommendations_data', None)
-    if not recommendations:
-        flash('먼저 피부 분석을 진행해주세요.', 'info')
-        return redirect(url_for('analysis'))
-    return render_template('routines.html', recommendations=recommendations)
+    return render_template('result.html', main_score=main_score, scores=concern_scores, uploaded_image=url_for('static', filename=f'uploads_temp/{filename}'), result_summary=result_summary)
 
 @app.route('/recommendations')
 def recommendations():
@@ -585,14 +494,7 @@ def recommendations():
     night_routine = get_night_routine_structure(db, skin_type, concerns, current_season, makeup)
     
     # 사용자 정보
-    now = datetime.now()
     user_info = {
-        "username": session.get('username', '방문자'),
-        "date_info": {
-            "year": now.year,
-            "month": now.month,
-            "day": now.day
-        },
         "skin_type": skin_type,
         "concerns": concerns,
         "season": current_season,
@@ -628,6 +530,62 @@ def get_current_season():
     # 환절기 (봄, 가을): 3월, 4월, 10월, 11월
     else:
         return 'spring_fall'
+
+def get_recommended_moisturizer(skin_type, season):
+    """계절별 최적화된 보습제를 추천합니다."""
+    try:
+        db = get_db()
+        
+        if season == 'summer':
+            # 여름: 가벼운 제형 선호
+            query = """
+                SELECT * FROM products 
+                WHERE main_category = '크림' 
+                AND sub_category IN ('수분', '진정', '모공')
+                ORDER BY 
+                    CASE
+                        WHEN name LIKE '%젤%' OR name LIKE '%gel%' THEN 0
+                        WHEN name LIKE '%플루이드%' OR name LIKE '%fluid%' THEN 0
+                        WHEN name LIKE '%수딩%' OR name LIKE '%soothing%' THEN 1
+                        WHEN name LIKE '%워터%' OR name LIKE '%water%' THEN 1
+                        ELSE 2
+                    END, rank ASC
+                LIMIT 3
+            """
+        elif season == 'winter':
+            # 겨울: 리치한 제형 선호
+            query = """
+                SELECT * FROM products 
+                WHERE main_category = '크림' 
+                AND sub_category IN ('보습', '안티에이징')
+                ORDER BY 
+                    CASE
+                        WHEN name LIKE '%밤%' OR name LIKE '%balm%' THEN 0
+                        WHEN name LIKE '%리치%' OR name LIKE '%rich%' THEN 0
+                        WHEN name LIKE '%인텐스%' OR name LIKE '%intense%' THEN 0
+                        WHEN name LIKE '%장벽%' OR name LIKE '%barrier%' THEN 0
+                        WHEN name LIKE '%시카%' OR name LIKE '%cica%' THEN 1
+                        ELSE 2
+                    END, rank ASC
+                LIMIT 3
+            """
+        else:
+            # 환절기: 중간 제형
+            query = """
+                SELECT * FROM products 
+                WHERE main_category = '크림' 
+                AND sub_category IN ('수분', '보습', '진정')
+                ORDER BY rank ASC
+                LIMIT 3
+            """
+        
+        cursor = db.execute(query)
+        products = cursor.fetchall()
+        return [dict(product) for product in products]
+        
+    except Exception as e:
+        print(f"보습제 추천 중 오류: {e}")
+        return []
 
 def get_hyper_personalized_cleanser(skin_type, makeup, concerns):
     """초개인화 클렌저 추천 함수"""
@@ -748,10 +706,33 @@ def get_cleanser_by_type_and_concerns(db, cleanser_type, concerns, step):
         print(f"클렌저 검색 중 오류: {e}")
         return None
 
-
+def get_water_cleansing_recommendation(skin_type, concerns):
+    """물세안 적합성 판단"""
+    # 지성/복합성 피부는 물세안 부적합
+    if skin_type in ['지성', '복합성']:
+        return {
+            'suitable': False,
+            'reason': '지성/복합성 피부는 유분이 많아 물세안만으로는 충분하지 않습니다. 클렌저 사용을 권장합니다.'
+        }
+    
+    # 건성/민감성 피부는 물세안 적합
+    elif skin_type in ['건성', '민감성']:
+        return {
+            'suitable': True,
+            'reason': '건성/민감성 피부는 물세안이 적합할 수 있습니다. 피부 자극을 최소화할 수 있습니다.'
+        }
+    
+    # 중성 피부는 조건부 적합
+    else:
+        return {
+            'suitable': True,
+            'reason': '중성 피부는 물세안이 적합할 수 있지만, 메이크업이나 자외선 차단제 사용 시에는 클렌저 사용을 권장합니다.'
+        }
 
 def get_morning_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
     """모닝 루틴 구조화된 추천"""
+    water_cleansing = get_water_cleansing_recommendation(skin_type, concerns)
+    
     steps = []
     
     # STEP 1: 아침 세안
@@ -762,25 +743,30 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
         "alternatives": []
     }
     
-    # 클렌저 추천
-    cleanser_query = """
-        SELECT * FROM products 
-        WHERE main_category = '클렌징' 
-        AND (name LIKE '%워터%' OR name LIKE '%젤%' OR name LIKE '%폼%')
-        ORDER BY rank ASC
-        LIMIT 3
-    """
-    cleansers = db.execute(cleanser_query).fetchall()
-    if cleansers:
-        primary = dict(cleansers[0])
-        step1["primary_recommendation"] = primary
-        
-        # 대안 제품들
-        alternatives = []
-        for i in range(1, min(3, len(cleansers))):
-            alt = dict(cleansers[i])
-            alternatives.append(alt)
-        step1["alternatives"] = alternatives
+    # 물세안이 적합한 경우
+    if water_cleansing['suitable']:
+        step1["step_description"] = "물세안으로 충분합니다. 따뜻한 물로 부드럽게 씻어내세요."
+    else:
+        # 클렌저 추천
+        cleanser_query = """
+            SELECT * FROM products 
+            WHERE main_category = '클렌징' 
+            AND (name LIKE '%워터%' OR name LIKE '%젤%' OR name LIKE '%폼%')
+            ORDER BY rank ASC
+            LIMIT 3
+        """
+        cleansers = db.execute(cleanser_query).fetchall()
+        if cleansers:
+            primary = dict(cleansers[0])
+            primary['reason'] = f"{primary['sub_category']} 고민을 위한 가벼운 아침 클렌저"
+            step1["primary_recommendation"] = primary
+            
+            # 대안 제품들
+            alternatives = []
+            for i in range(1, min(3, len(cleansers))):
+                alt = dict(cleansers[i])
+                alternatives.append(alt)
+            step1["alternatives"] = alternatives
     
     steps.append(step1)
     
@@ -803,6 +789,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     
     if toners:
         primary = dict(toners[0])
+        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 부드럽게 정돈해요"
         step2["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -833,6 +820,7 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     
     if moisturizers:
         primary = dict(moisturizers[0])
+        primary['reason'] = f"{primary['sub_category']} 효과로 가벼운 수분을 공급해요"
         step3["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -845,9 +833,10 @@ def get_morning_routine_structure(db, skin_type, concerns, current_season, makeu
     steps.append(step3)
     
     return {
-        "title": '" Morning "',
+        "title": "모닝 루틴 (Morning Routine)",
         "description": "가벼운 수분과 진정으로 산뜻하게 하루를 시작해요.",
-        "steps": steps
+        "steps": steps,
+        "water_cleansing": water_cleansing
     }
 
 def get_night_routine_structure(db, skin_type, concerns, current_season, makeup='no'):
@@ -885,6 +874,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     cleansers = db.execute(cleanser_query).fetchall()
     if cleansers:
         primary = dict(cleansers[0])
+        primary['reason'] = f"{primary['sub_category']} 효과로 깊이 있는 세정을 해요"
         step1["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -915,6 +905,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     
     if serums:
         primary = dict(serums[0])
+        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 깊이 있게 케어해요"
         step2["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -945,6 +936,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     
     if creams:
         primary = dict(creams[0])
+        primary['reason'] = f"{primary['sub_category']} 효과로 피부를 든든하게 보호해요"
         step3["primary_recommendation"] = primary
         
         # 대안 제품들
@@ -957,7 +949,7 @@ def get_night_routine_structure(db, skin_type, concerns, current_season, makeup=
     steps.append(step3)
     
     return {
-        "title": '" Night "',
+        "title": "나이트 루틴 (Night Routine)",
         "description": "하루 동안 쌓인 노폐물을 씻어내고 피부 깊숙이 영양을 공급해요.",
         "steps": steps
     }
