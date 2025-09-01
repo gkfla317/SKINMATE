@@ -19,7 +19,10 @@ RUN pip install -r requirements.txt
 # 5. 애플리케이션 소스 코드 복사
 COPY . .
 
+# Cloud Run은 PORT 환경변수를 줌
+ENV PORT=8080
+
 # 6. 애플리케이션 실행
 # Cloud Run이 외부 요청을 받을 수 있도록 8080 포트를 사용합니다.
 # gunicorn을 사용해 app.py 파일 안에 있는 'app' 객체를 실행합니다.
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "app:app"]
