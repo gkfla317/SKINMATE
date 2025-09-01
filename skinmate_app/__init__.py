@@ -71,6 +71,9 @@ def create_app(config_name='development'):
     # CLI 명령어 등록
     register_cli_commands(app)
     
+    # 보안 헤더 등록 (프로덕션 환경에서만)
+    register_security_headers(app)
+    
     app.logger.info(f"SKINMATE application created with config: {config_name}")
     
     return app
@@ -235,6 +238,34 @@ def close_db(e=None):
     db = g.pop('db', None)
     if db is not None:
         db.close()
+
+
+def register_security_headers(app):
+    """보안 헤더 등록"""
+    
+    @app.after_request
+    def set_security_headers(response):
+        """모든 응답에 보안 헤더 추가"""
+        # 프로덕션 환경에서만 보안 헤더 적용
+        if app.config.get('ENV') == 'production':
+            # Content Security Policy
+            response.headers['Content-Security-Policy'] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "frame-ancestors 'none';"
+            )
+            
+            # 기타 보안 헤더
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['X-XSS-Protection'] = '1; mode=block'
+            response.headers['Strict-Transport-Security'] = (
+                'max-age=31536000; includeSubDomains'
+            )
+        
+        return response
 
 
 # 애플리케이션 컨텍스트에서 데이터베이스 정리

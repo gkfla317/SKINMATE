@@ -24,11 +24,33 @@
 | **프론트엔드** | `HTML`, `CSS`, `JavaScript` | 웹페이지 구조, 디자인, 동적 상호작용 구현 |
 | | `Google Fonts` | 서비스의 시각적 아이덴티티를 위한 웹 폰트 적용 |
 | **백엔드** | `Python` | 핵심 비즈니스 로직 개발 |
-| | `Flask` | 경량 웹 프레임워크를 이용한 서버 구축 및 라우팅 |
+| | `Flask` | Application Factory 패턴으로 모듈화된 웹 프레임워크 |
 | | `Jinja2` | 템플릿 엔진을 통한 동적 HTML 페이지 생성 |
+| **아키텍처** | `Blueprint` | 라우팅 모듈화 및 관심사 분리 |
+| | `Service Layer` | 비즈니스 로직과 데이터 액세스 분리 |
+| | `Dependency Injection` | 모듈 간 느슨한 결합 구현 |
 | **데이터베이스** | `SQLite` | 사용자 정보, 분석 결과 등 데이터 저장 및 관리 |
 | **AI** | `TensorFlow`, `Scikit-learn`, `XGBoost` | 피부 이미지 분석 및 상태 예측 모델 |
 | **이미지 처리** | `OpenCV`, `Pillow` | 이미지 전처리 및 얼굴 인식 |
+| **보안** | `Werkzeug Security`, `Environment Variables` | 비밀번호 해싱, 환경 변수 기반 설정 관리 |
+
+## **🏗️ 프로젝트 구조**
+
+```
+SKINMATE_test_2/
+├── 🚀 run.py                      # 애플리케이션 진입점
+├── 📦 skinmate_app/               # 메인 웹 애플리케이션 (모듈화)
+│   ├── __init__.py               # Application Factory Pattern
+│   ├── config.py                 # 환경별 설정 관리
+│   ├── models.py                 # AI 모델 + 데이터 모델
+│   ├── services.py               # 비즈니스 로직 레이어
+│   ├── routes.py                 # Blueprint 라우팅
+│   └── utils.py                  # 유틸리티 함수
+├── 📁 static/                     # 정적 파일 (CSS, 이미지)
+├── 📁 templates/                  # Jinja2 템플릿
+├── 🤖 *.pkl                      # AI 모델 파일들
+└── 📄 app copy0829.py           # 백업본 (모놀리식 구조)
+```
 
 <br>
 
@@ -62,15 +84,15 @@
     ```
 
 4.  **데이터베이스 초기화:**
-    *   프로젝트의 `user` 및 `analysis_results` 테이블을 생성합니다.
     ```bash
-    python create_user_table.py
+    # 데이터베이스 자동 초기화 (새로운 모듈화 구조)
+    python -c "from skinmate_app import create_app; app = create_app(); print('Database initialized')"
     ```
-    *   (참고) `flask init-db` 명령어가 환경에 따라 작동하지 않을 수 있어, 안정적인 `create_user_table.py` 스크립트 실행을 권장합니다.
 
-5.  **Flask 애플리케이션 실행:**
+5.  **애플리케이션 실행:**
     ```bash
-    flask run --port=5001
+    # 새로운 실행 방법 (모듈화된 구조)
+    python run.py
     ```
 
 6.  웹 브라우저에서 `http://127.0.0.1:5001` 주소로 접속하여 SKINMATE를 확인합니다.

@@ -276,6 +276,26 @@ class DatabaseError(Exception):
     pass
 
 
+class SecurityError(Exception):
+    """보안 관련 예외"""
+    pass
+
+
+class FileUploadError(Exception):
+    """파일 업로드 관련 예외"""
+    pass
+
+
+class ServiceError(Exception):
+    """서비스 레이어 관련 예외"""
+    pass
+
+
+class ConfigurationError(Exception):
+    """설정 관련 예외"""
+    pass
+
+
 # 유틸리티 함수들
 def create_file_hash(file_content: bytes) -> str:
     """파일 내용의 해시값 생성"""
