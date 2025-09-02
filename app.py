@@ -321,43 +321,49 @@ def get_skin_scores(filepath):
 
 def generate_recommendations(scores, username):
     """점수와 API에서 받은 피부 타입 문자열을 기반으로 피부 타입, 고민, 추천 문구를 생성합니다."""
-    # scores 딕셔너리에서 skin_type을 직접 사용
     skin_type = scores.get('skin_type', '알 수 없음')
 
-    # 기존 skin_type_score를 사용하던 로직은 제거
+    # 1. 피부 타입에 따른 기본 설명 정의
+    skin_type_descriptions = {
+        '건성': '건성 피부는 피지가 적고 건조하여 각질이 일어나기 쉬우며, 꼼꼼한 보습이 중요합니다.',
+        '지성': '지성 피부는 피지 분비가 많아 번들거리기 쉽고, 모공 관리와 유수분 밸런스를 맞추는 것이 중요합니다.',
+        '중성': '중성 피부는 유수분 밸런스가 이상적이지만, 계절과 환경에 따라 관리가 필요합니다.',
+        '복합 건성': '복합 건성 피부는 T존은 괜찮지만 U존(볼, 턱)이 건조하므로, 부위별로 다른 보습 전략이 필요합니다.',
+        '복합 지성': '복합 지성 피부는 T존의 피지 분비가 활발하고 U존은 비교적 정상에 가까우므로, T존 위주의 피지 조절이 중요합니다.'
+    }
+    skin_type_text = skin_type_descriptions.get(skin_type, f'{skin_type} 타입의 피부를 가지고 계시네요.')
 
+    # 2. 점수를 기반으로 피부 고민 분석
     concern_scores = {k: v for k, v in scores.items() if k != 'skin_type_score'}
     all_scores_korean = {
         '수분': concern_scores.get('moisture'),
         '탄력': concern_scores.get('elasticity'),
         '주름': concern_scores.get('wrinkle')
     }
-    
     top_concerns_names = [name for name, score in all_scores_korean.items() if score <= 40]
-
     concern_icon_map = {
         '수분': 'water-icon.png',
         '탄력': 'elasticity-icon.png',
         '주름': 'wrinkle-icon.png'
     }
-    
     concerns_for_template = [{'name': name, 'icon': concern_icon_map.get(name, 'default-icon.png')} for name in top_concerns_names]
-    
-    intro_message = ""
+
+    # 3. 피부 고민에 따른 문구 생성
+    concern_intro = ""
     if '수분' in top_concerns_names and '탄력' in top_concerns_names and '주름' in top_concerns_names:
-        intro_message = "전반적인 피부 컨디션이 떨어져 있습니다."
+        concern_intro = "현재 전반적인 피부 컨디션이 떨어져 있습니다."
     elif '수분' in top_concerns_names and '탄력' in top_concerns_names:
-        intro_message = "피부 속 수분이 줄고 탄력이 떨어져 생기가 없어 보입니다."
+        concern_intro = "피부 속 수분이 줄고 탄력이 떨어져 생기가 없어 보입니다."
     elif '수분' in top_concerns_names and '주름' in top_concerns_names:
-        intro_message = "촉촉함이 사라지면서 잔주름이 더 도드라져 보입니다."
+        concern_intro = "촉촉함이 사라지면서 잔주름이 더 도드라져 보입니다."
     elif '탄력' in top_concerns_names and '주름' in top_concerns_names:
-        intro_message = "피부가 탄력을 잃고 주름이 점점 깊어지고 있습니다."
+        concern_intro = "피부가 탄력을 잃고 주름이 점점 깊어지고 있습니다."
     elif '수분' in top_concerns_names:
-        intro_message = "피부에 수분이 부족해 건조함이 느껴집니다."
+        concern_intro = "피부에 수분이 부족해 건조함이 느껴집니다."
     elif '탄력' in top_concerns_names:
-        intro_message = "피부에 탄력이 떨어져 탄탄함이 부족합니다."
+        concern_intro = "피부에 탄력이 떨어져 탄탄함이 부족합니다."
     elif '주름' in top_concerns_names:
-        intro_message = "잔주름과 굵은 주름이 깊어지고 있습니다."
+        concern_intro = "잔주름과 굵은 주름이 깊어지고 있습니다."
 
     product_recommendation = ""
     if '수분' in top_concerns_names and '탄력' in top_concerns_names and '주름' in top_concerns_names:
@@ -375,10 +381,19 @@ def generate_recommendations(scores, username):
     elif '탄력' in top_concerns_names:
         product_recommendation = "펩타이드와 콜라겐 성분이 함유된 제품으로 피부 결을 단단하게 하고 건강한 탄력을 되찾아 보세요."
 
-    if intro_message:
-        recommendation_text = intro_message + "<br>" + product_recommendation
+    # 4. 최종 추천 문구 조합
+    if concern_intro:
+        recommendation_text = f"{skin_type_text}<br><br>{concern_intro}<br>{product_recommendation}"
     else:
-        recommendation_text = f"{username}님의 피부는 현재 특별한 관리가 필요하지 않은 좋은 상태입니다.<br>현재 루틴을 유지하세요<br>"
+        maintenance_advice = {
+            '건성': '꾸준한 보습으로 피부 장벽을 건강하게 유지해주세요.',
+            '지성': '과도한 피지가 생기지 않도록 꾸준히 관리하고 유수분 밸런스를 맞추는 것이 중요합니다.',
+            '중성': '이상적인 피부 상태를 유지하기 위해 현재의 루틴을 꾸준히 이어가세요.',
+            '복합 건성': 'U존의 건조함이 심해지지 않도록 보습에 계속 신경 써주세요.',
+            '복합 지성': 'T존의 유분기를 관리하며 현재의 좋은 상태를 유지해주세요.'
+        }
+        maintenance_text = maintenance_advice.get(skin_type, "현재 루틴을 유지하며 좋은 피부 상태를 이어가세요.")
+        recommendation_text = f"{skin_type_text}<br><br>{username}님의 피부는 현재 특별한 고민은 없지만, {maintenance_text}"
 
     return {'skin_type': skin_type, 'top_concerns_names': top_concerns_names, 'concerns_for_template': concerns_for_template, 'recommendation_text': recommendation_text}
 
@@ -390,7 +405,15 @@ def generate_result_summary(username, main_score, skin_type, top_concerns_names)
         concerns_str = "', '".join(top_concerns_names)
         summary += f"진단 결과, 현재 피부는 '{skin_type}' 타입으로 판단되며, '{concerns_str}'에 대한 집중 케어가 필요합니다.<br>{username}님의 피부 고민을 해결해 줄 추천 제품을 확인해 보세요!"
     else:
-        summary += f"현재 피부는 '{skin_type}' 타입이며, 전반적으로 균형 잡힌 건강한 피부 상태입니다.<br>피부 관리를 정말 잘하고 계시네요!<br>지금의 피부 컨디션을 유지하기 위해, 피부 장벽을 보호하고 수분과 영양을 적절히 공급해주는 제품을 꾸준히 사용하시는 것을 권장해드립니다."
+        maintenance_advice = {
+            '건성': '지금처럼 꾸준한 보습으로 피부 장벽을 건강하게 유지하는 것이 중요합니다.',
+            '지성': '과도한 피지가 생기지 않도록 유수분 밸런스를 맞추는 것이 중요합니다.',
+            '중성': '지금처럼 이상적인 피부 상태를 꾸준히 유지해주세요.',
+            '복합 건성': 'U존이 건조해지지 않도록 보습에 신경 써주세요.',
+            '복합 지성': 'T존의 유분기를 관리하며 현재의 좋은 상태를 유지해주세요.'
+        }
+        maintenance_text = maintenance_advice.get(skin_type, "지금의 좋은 피부 컨디션을 꾸준히 유지해주세요.")
+        summary += f"현재 피부는 '{skin_type}' 타입이며, 특별한 고민은 발견되지 않았습니다.<br>피부 관리를 정말 잘하고 계시네요! {maintenance_text}"
     
     return summary
 

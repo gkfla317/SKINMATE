@@ -544,7 +544,7 @@ main.night-theme .tab-button.active:hover {
 .product-link {
     display: inline-block;
     background: transparent;
-    color: rgb(48, 48, 48);
+    color: rgb(0, 0, 0);
     text-decoration: none;
     padding: 2 0;
     border: none;
