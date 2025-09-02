@@ -1,88 +1,119 @@
+# SKINMATE: AI 피부 분석 및 맞춤 스킨케어 추천 시스템
 
-# **SKINMATE: AI 피부 분석 및 맞춤 화장품 추천 서비스**
+---
 
-![SKINMATE](https://placehold.co/800x300?text=SKINMATE+Project+Banner)
+## 📖 프로젝트 소개
 
-**SKINMATE**는 사용자가 업로드한 얼굴 사진 한 장으로 피부 상태를 정밀하게 분석하고, 그 결과를 바탕으로 개인에게 최적화된 스킨케어 루틴과 화장품을 추천해주는 AI 기반 웹 서비스입니다. '나만을 위한 AI 피부 전문가'라는 컨셉 아래, 사용자가 쉽고 재미있게 자신의 피부를 관리할 수 있도록 돕습니다.
+**SKINMATE**는 사용자가 업로드한 얼굴 사진을 AI로 분석하여 개인의 피부 타입을 진단하고, 그 결과를 바탕으로 개인 맞춤형 스킨케어 제품 및 아침/저녁 루틴을 추천해주는 웹 애플리케이션입니다.
 
-<br>
+단순히 인기 제품을 나열하는 것이 아니라, 사용자의 피부 상태, 주요 고민, 그리고 현재 계절까지 고려하여 과학적이고 체계적인 추천을 제공하는 것을 목표로 합니다.
 
-## **✨ 주요 기능**
+---
 
-*   **AI 피부 분석:** 얼굴 사진을 업로드하면 AI 모델이 수분, 탄력, 주름 등 주요 피부 지표를 분석하여 종합 점수를 제공합니다.
-*   **맞춤형 루틴 처방전:** 분석 결과를 바탕으로 '처방전' 형태의 독창적인 UI를 통해 개인의 피부 타입과 고민에 맞는 아침/저녁 스킨케어 루틴을 제안합니다.
-*   **개인화된 제품 추천:** 각 스킨케어 단계에 맞춰 시중에서 판매 중인 실제 화장품을 추천하고, 랭킹과 추천 이유, 대체 가능한 제품 목록까지 상세하게 제공합니다.
-*   **분석 기록 및 시각화:** 과거의 피부 분석 결과를 기록하고, 차트를 통해 시간 경과에 따른 피부 상태 변화를 직관적으로 확인할 수 있습니다.
-*   **사용자 인증:** 회원가입 및 로그인 기능을 통해 개인의 분석 기록과 추천 내역을 안전하게 관리합니다.
+## ✨ 주요 기능
 
-<br>
+- **AI 피부 타입 분석**: Google Cloud Vertex AI를 활용하여 업로드된 이미지로부터 피부 타입(건성, 지성, 복합성 등)을 예측합니다.
+- **개인 맞춤 루틴 추천**: 피부 타입, 주요 고민(수분, 탄력, 주름), 계절(여름, 겨울, 환절기)을 종합적으로 고려한 동적 추천 엔진을 통해 아침/저녁 스킨케어 루틴을 제공합니다.
+- **상세 분석 리포트**: 종합 점수, 항목별 점수(수분, 탄력, 주름)를 시각적인 차트와 아이콘으로 제공하여 사용자가 자신의 피부 상태를 쉽게 파악할 수 있도록 돕습니다.
+- **사용자 인증 및 기록 관리**: 회원가입 및 로그인 기능을 통해 과거의 분석 기록을 관리하고, 시간 경과에 따른 피부 상태 변화를 추적할 수 있습니다.
+- **웹 크롤러**: `main.py` 스크립트를 통해 화해(Hwahae) 웹사이트의 제품 데이터를 수집하여 추천에 사용될 데이터베이스를 구축합니다.
 
-## **🛠️ 기술 스택**
+---
 
-| 구분 | 기술 | 역할 |
-| :--- | :--- | :--- |
-| **프론트엔드** | `HTML`, `CSS`, `JavaScript` | 웹페이지 구조, 디자인, 동적 상호작용 구현 |
-| | `Google Fonts` | 서비스의 시각적 아이덴티티를 위한 웹 폰트 적용 |
-| **백엔드** | `Python` | 핵심 비즈니스 로직 개발 |
-| | `Flask` | 경량 웹 프레임워크를 이용한 서버 구축 및 라우팅 |
-| | `Jinja2` | 템플릿 엔진을 통한 동적 HTML 페이지 생성 |
-| **데이터베이스** | `SQLite` | 사용자 정보, 분석 결과 등 데이터 저장 및 관리 |
-| **AI** | `TensorFlow`, `Scikit-learn`, `XGBoost` | 피부 이미지 분석 및 상태 예측 모델 |
-| **이미지 처리** | `OpenCV`, `Pillow` | 이미지 전처리 및 얼굴 인식 |
+## 🛠️ 기술 스택
 
-<br>
+- **Backend**: Python, Flask
+- **Frontend**: HTML, CSS, JavaScript
+- **Database**: SQLite
+- **AI/ML**: Google Cloud Vertex AI
+- **Image Processing**: OpenCV
+- **Dependencies**: `requirements.txt` 참고
 
-## **🚀 시작하기**
+---
 
-로컬 환경에서 SKINMATE 프로젝트를 실행하는 방법은 다음과 같습니다.
+## ⚙️ 설치 및 실행 방법
 
-### **1. 사전 요구사항**
+### 1. 사전 준비
 
-*   Python 3.8 이상
-*   pip (Python 패키지 관리자)
+- Python 3.9 이상
+- Git
 
-### **2. 설치 및 실행**
+### 2. 설치
 
-1.  **프로젝트 클론:**
-    ```bash
-    git clone https://github.com/your-username/skinmate-project.git
-    cd skinmate-project
-    ```
+```bash
+# 1. 프로젝트를 로컬 환경으로 복제합니다.
+git clone <repository_url>
+cd test-skinmate-api
 
-2.  **가상 환경 생성 및 활성화:**
-    ```bash
-    # Windows
-    python -m venv venv
-    venv\Scripts\activate
-    ```
+# 2. 가상 환경을 생성하고 활성화합니다.
+python -m venv venv
+# Windows
+virtualenv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
 
-3.  **필요한 라이브러리 설치:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# 3. 필요한 라이브러리를 설치합니다.
+pip install -r requirements.txt
+```
 
-4.  **데이터베이스 초기화:**
-    *   프로젝트의 `user` 및 `analysis_results` 테이블을 생성합니다.
-    ```bash
-    python create_user_table.py
-    ```
-    *   (참고) `flask init-db` 명령어가 환경에 따라 작동하지 않을 수 있어, 안정적인 `create_user_table.py` 스크립트 실행을 권장합니다.
+### 3. 환경 변수 설정
 
-5.  **Flask 애플리케이션 실행:**
-    ```bash
-    flask run --port=5001
-    ```
+프로젝트 루트 디렉토리에 `.env` 파일을 생성하고, 아래 내용을 자신의 환경에 맞게 채워넣습니다. 이는 Vertex AI API 인증 및 Flask 앱 설정을 위해 필수적입니다.
 
-6.  웹 브라우저에서 `http://127.0.0.1:5001` 주소로 접속하여 SKINMATE를 확인합니다.
+```env
+# .env 파일 예시
 
-<br>
+# Google Cloud 설정
+PROJECT_ID="your-google-cloud-project-id"
+ENDPOINT_ID="your-vertex-ai-endpoint-id"
+REGION="your-gcp-region"
+GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\your-service-account-file.json"
 
-## **📖 사용 방법**
+# Flask 설정
+SECRET_KEY="your-strong-and-secret-key"
+```
 
-1.  **회원가입 및 로그인:** 먼저 사이트의 회원가입 기능을 통해 계정을 생성하고 로그인합니다.
-2.  **피부 분석:** '분석하기' 메뉴로 이동하여 안내에 따라 선명한 정면 얼굴 사진을 업로드합니다.
-3.  **결과 확인:** AI가 분석한 피부 종합 점수와 수분, 탄력, 주름 점수를 확인합니다.
-4.  **추천 받기:** '추천 상품 보러가기' 버튼을 눌러 개인 맞춤형 스킨케어 루틴과 추천 제품이 담긴 '처방전'을 확인합니다.
-5.  **기록 확인:** '분석 기록' 메뉴에서 과거의 분석 내역을 확인하고 피부 상태의 변화를 추적할 수 있습니다.
+### 4. 데이터베이스 초기화 및 데이터 수집
 
-<br>
+애플리케이션을 실행하기 전에, 데이터베이스 테이블을 생성하고 추천에 필요한 제품 데이터를 수집해야 합니다.
+
+```bash
+# 1. Flask CLI를 사용하여 데이터베이스 스키마를 생성합니다.
+flask init-db
+
+# 2. 데이터 크롤러를 실행하여 제품 데이터를 수집합니다. (시간이 다소 소요될 수 있습니다)
+python main.py
+```
+
+### 5. 애플리케이션 실행
+
+모든 설정이 완료되면, 아래 명령어로 Flask 개발 서버를 실행합니다.
+
+```bash
+python app.py
+```
+
+서버가 실행되면 웹 브라우저에서 `http://127.0.0.1:5001` 주소로 접속하여 SKINMATE 서비스를 이용할 수 있습니다.
+
+---
+
+## 📂 프로젝트 구조
+
+```
+.test-skinmate-api/
+├── instance/             # SQLite DB 파일 등 인스턴스 데이터
+├── static/               # CSS, JavaScript, 이미지 등 정적 파일
+│   ├── css/
+│   └── images/
+├── templates/            # HTML 템플릿 파일
+├── uploads/              # 사용자가 업로드한 이미지
+├── .env                  # 환경 변수 설정 파일
+├── app.py                # 메인 Flask 애플리케이션
+├── main.py               # 데이터 수집 파이프라인 실행 스크립트
+├── crawler.py            # 화해 웹 크롤러
+├── database.py           # 데이터베이스 핸들러
+├── routine_rules.py      # 스킨케어 루틴 추천 규칙
+├── schema.sql            # 데이터베이스 테이블 스키마
+├── requirements.txt      # Python 종속성 목록
+└── README.md             # 프로젝트 설명 파일
+```
