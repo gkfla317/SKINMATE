@@ -537,16 +537,52 @@ def routines():
 
 @app.route('/recommendations')
 def recommendations():
-    # 올바른 세션 키에서 데이터를 가져옵니다.
-    recommendations_data = session.get('recommendations_data', None)
+    results = session.get('skin_analysis_results', None)
+    if not results:
+        return render_template('recommendations.html', skin_type="분석 전", concerns=[], recommendation_text='피부 분석을 먼저 진행해주세요. <a href="/analysis">분석 페이지로 이동</a>', products=[], current_season='N/A', recommendations={})
     
-    # 데이터가 없으면 분석 페이지로 리디렉션합니다.
-    if not recommendations_data:
-        flash('먼저 피부 분석을 진행해주세요.', 'info')
-        return redirect(url_for('analysis'))
+    # 피부 타입과 고민에 따른 제품 추천
+    skin_type = results.get('skin_type', 'N/A')
+    concerns = results.get('concerns', [])
+    scores = results.get('scores', {})
+    current_season = get_current_season()
+    makeup = results.get('makeup', 'no')  # 메이크업 여부 (기본값: no)
     
-    # recommendations.html 템플릿에 데이터를 전달하여 렌더링합니다.
-    return render_template('recommendations.html', recommendations=recommendations_data)
+    # 새로운 구조화된 추천 시스템
+    db = get_db()
+    morning_routine = get_routine_from_rules(db, 'morning', skin_type, concerns, current_season)
+    night_routine = get_routine_from_rules(db, 'night', skin_type, concerns, current_season)
+    
+    # 사용자 정보
+    now = datetime.now()
+    user_info = {
+        "username": session.get('username', '방문자'),
+        "date_info": {
+            "year": now.year,
+            "month": now.month,
+            "day": now.day
+        },
+        "skin_type": skin_type,
+        "concerns": concerns,
+        "season": current_season,
+        "makeup": makeup
+    }
+    
+    # 최종 추천 구조
+    recommendations = {
+        "user_info": user_info,
+        "morning_routine": morning_routine,
+        "night_routine": night_routine
+    }
+    
+    return render_template('recommendations.html', 
+                         skin_type=skin_type, 
+                         concerns=concerns, 
+                         recommendation_text=results.get('recommendation_text', '오류가 발생했습니다.'), 
+                         scores=scores,
+                         current_season=current_season,
+                         makeup=makeup,
+                         recommendations=recommendations)
 
 def get_current_season():
     """현실적인 기후 변화를 반영하여 현재 계절을 반환합니다."""

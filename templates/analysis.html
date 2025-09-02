@@ -2,7 +2,69 @@
 
 {% block title %}피부 분석 - SKINMATE{% endblock %}
 
+{% block head %}
+{{ super() }}
+<style>
+    /* 로딩 오버레이 스타일 */
+    #loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.85);
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+        transition: opacity 0.3s ease-in-out;
+    }
+    .loading-animation-container {
+        text-align: center;
+    }
+    .typing-ellipsis {
+        margin-bottom: 20px;
+    }
+    .typing-ellipsis span {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        background-color: #6a0dad;
+        border-radius: 50%;
+        margin: 0 5px;
+        animation: ellipsis-pulse 1.4s infinite both;
+    }
+    .typing-ellipsis span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-ellipsis span:nth-child(2) { animation-delay: -0.16s; }
+    @keyframes ellipsis-pulse {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1.2); }
+    }
+    #loading-text {
+        font-size: 18px;
+        font-weight: bold;
+        color: #333;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
+
+<!-- [수정됨] 로딩 오버레이 HTML -->
+<div id="loading-overlay" style="display: none;">
+    <div class="loading-animation-container">
+        <div class="typing-ellipsis">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+        <p id="loading-text">AI가 피부를 분석하고 있습니다...</p>
+    </div>
+</div>
+
 <div class="analysis-container">
     <div class="left-panel">
         <div class="image-preview-container">
@@ -48,6 +110,47 @@
                 placeholderText.style.display = 'none';
             };
             reader.readAsDataURL(this.files[0]);
+        }
+    });
+
+    // [수정됨] 로딩 애니메이션 스크립트
+    const uploadForm = document.getElementById('upload-form');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+
+    const loadingMessages = [
+        "AI가 사진을 확인하고 있습니다...",
+        "피부의 유분과 수분 밸런스를 측정하는 중...",
+        "숨어있는 주름과 탄력을 찾는 중...",
+        "피부톤과 잡티를 분석하고 있어요...",
+        "결과를 종합하여 맞춤 루틴을 생성합니다!",
+        "거의 다 되었어요. 잠시만 기다려주세요..."
+    ];
+
+    let messageInterval;
+
+    uploadForm.addEventListener('submit', function(event) {
+        if (imageUpload.files.length === 0) {
+            return;
+        }
+        
+        loadingOverlay.style.display = 'flex';
+        
+        let messageIndex = 0;
+        loadingText.textContent = loadingMessages[messageIndex];
+        
+        // 1.5초마다 메시지를 변경합니다.
+        messageInterval = setInterval(() => {
+            messageIndex = (messageIndex + 1) % loadingMessages.length;
+            loadingText.textContent = loadingMessages[messageIndex];
+        }, 800);
+    });
+
+    // 사용자가 뒤로가기 등으로 페이지에 다시 돌아왔을 때 로딩 화면이 남아있는 것을 방지합니다.
+    window.addEventListener('pageshow', function(event) {
+        if (event.persisted) {
+            clearInterval(messageInterval);
+            loadingOverlay.style.display = 'none';
         }
     });
 </script>
