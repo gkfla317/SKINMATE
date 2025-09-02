@@ -173,10 +173,13 @@ def predict_moisture_from_tflite(image_filepath):
 
         # 3. 이미지를 전처리합니다.
         img = cv2.imread(image_filepath)
+        # 모델은 RGB를 예상하지만 cv2는 BGR로 읽으므로 색상 공간을 변환합니다.
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # 모델이 예상하는 입력 크기로 이미지 크기를 조정합니다.
         img_resized = cv2.resize(img_rgb, (input_details[0]['shape'][1], input_details[0]['shape'][2]))
         
-        # 모델이 UINT8 타입의 입력을 예상하므로, 이미지를 0-255 범위의 정수형으로 유지하고 배치 차원만 추가합니다.
+        # 오류 로그에 따라, 모델은 FLOAT32가 아닌 UINT8 타입의 입력을 예상합니다.
+        # 따라서 이미지를 0-255 범위의 정수형으로 유지하고 배치 차원만 추가합니다.
         input_data = np.expand_dims(img_resized, axis=0)
 
         # 4. 추론을 실행합니다.
@@ -184,111 +187,30 @@ def predict_moisture_from_tflite(image_filepath):
         interpreter.invoke()
 
         # 5. 출력을 가져와 후처리합니다.
+        # 모델이 단일 값(예: [1,1] 텐서)을 출력한다고 가정합니다.
         output_data = interpreter.get_tensor(output_details[0]['index'])
-        raw_score = output_data[0][0]
+        # 출력이 0과 1 사이의 값이라고 가정하고 0-100으로 스케일링합니다.
+        # 만약 점수가 이상하게 나오면 이 부분의 수정이 필요할 수 있습니다.
+        moisture_score = float(output_data[0][0] * 100)
 
-        # 사용자께서 알려주신 모델 출력값(0.5 ~ 4.5)을 기준으로 0~100점 척도로 변환합니다.
-        min_val = 0.5
-        max_val = 4.5
-        
-        # Min-Max 정규화 공식: ((값 - 최소값) / (최대값 - 최소값)) * 100
-        moisture_score = ((raw_score - min_val) / (max_val - min_val)) * 100.0
-        
-        # 계산된 점수가 0-100 범위를 벗어날 경우를 대비해 범위를 제한합니다.
-        moisture_score = max(0.0, min(100.0, moisture_score))
-
-        print(f"TFLite 수분 모델 예측 점수 (0-100 변환): {moisture_score:.2f}")
+        print(f"TFLite 수분 모델 예측 점수: {moisture_score:.2f}")
         return moisture_score
 
     except Exception as e:
-        print(f"TFLite 수분 모델 예측 오류: {e}")
+        print(f"TFLite 모델 예측 오류: {e}")
         return 50.0 # 오류 발생 시 기존 임시 값으로 대체
-
-def predict_elasticity_from_tflite(image_filepath):
-    """Loads a TFLite model and predicts the elasticity score from an image."""
-    try:
-        # 1. TFLite 모델을 로드하고 텐서를 할당합니다.
-        interpreter = tf.lite.Interpreter(model_path=r"C:\Users\user\Desktop\test-skinmate-api\model_test_elasticity.tflite")
-        interpreter.allocate_tensors()
-
-        # 2. 모델의 입력 및 출력 세부 정보를 가져옵니다.
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-
-        # 3. 이미지를 전처리합니다.
-        img = cv2.imread(image_filepath)
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (input_details[0]['shape'][1], input_details[0]['shape'][2]))
-        input_data = np.expand_dims(img_resized, axis=0)
-
-        # 4. 추론을 실행합니다.
-        interpreter.set_tensor(input_details[0]['index'], input_data)
-        interpreter.invoke()
-
-        # 5. 출력을 가져와 후처리합니다.
-        output_data = interpreter.get_tensor(output_details[0]['index'])
-        raw_score = output_data[0][0]
-
-        # 탄력 모델의 출력값(1.0 ~ 4.0)을 기준으로 0~100점 척도로 변환합니다.
-        min_val = 1.0
-        max_val = 4.0
-        
-        elasticity_score = ((raw_score - min_val) / (max_val - min_val)) * 100.0
-        elasticity_score = max(0.0, min(100.0, elasticity_score))
-
-        print(f"TFLite 탄력 모델 예측 점수 (0-100 변환): {elasticity_score:.2f}")
-        return elasticity_score
-
-    except Exception as e:
-        print(f"TFLite 탄력 모델 예측 오류: {e}")
-        return 50.0 # 오류 발생 시 기존 임시 값으로 대체
-
-def predict_wrinkle_from_tflite(image_filepath):
-    """Loads a TFLite model and predicts the wrinkle score from an image."""
-    try:
-        interpreter = tf.lite.Interpreter(model_path=r"C:\Users\user\Desktop\test-skinmate-api\model_test_wrinkle.tflite")
-        interpreter.allocate_tensors()
-
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-
-        img = cv2.imread(image_filepath)
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img_resized = cv2.resize(img_rgb, (input_details[0]['shape'][1], input_details[0]['shape'][2]))
-        input_data = np.expand_dims(img_resized, axis=0)
-
-        interpreter.set_tensor(input_details[0]['index'], input_data)
-        interpreter.invoke()
-
-        output_data = interpreter.get_tensor(output_details[0]['index'])
-        raw_score = output_data[0][0]
-
-        # 주름 모델의 출력값(0.5 ~ 4.5)을 기준으로 0~100점 척도로 변환합니다.
-        min_val = 0.5
-        max_val = 4.5
-        
-        wrinkle_score = ((raw_score - min_val) / (max_val - min_val)) * 100.0
-        wrinkle_score = max(0.0, min(100.0, wrinkle_score))
-
-        print(f"TFLite 주름 모델 예측 점수 (0-100 변환): {wrinkle_score:.2f}")
-        return wrinkle_score
-
-    except Exception as e:
-        print(f"TFLite 주름 모델 예측 오류: {e}")
-        return 65.0 # 오류 발생 시 기존 임시 값으로 대체
 
 def get_skin_scores(filepath):
     """Vertex AI API와 TFLite 모델을 사용하여 피부 점수를 계산합니다."""
     try:
         skin_type_from_api = predict_skin_type_from_vertex_ai(filepath)
         moisture_score_from_model = predict_moisture_from_tflite(filepath)
-        elasticity_score_from_model = predict_elasticity_from_tflite(filepath)
-        wrinkle_score_from_model = predict_wrinkle_from_tflite(filepath)
 
+        # 탄력, 주름은 임시 점수 유지
         scores = {
             'moisture': moisture_score_from_model,
-            'elasticity': elasticity_score_from_model,
-            'wrinkle': wrinkle_score_from_model,
+            'elasticity': 50.0,
+            'wrinkle': 65.0,
             'skin_type': skin_type_from_api
         }
         return scores
@@ -301,7 +223,6 @@ def get_skin_scores(filepath):
             'wrinkle': 65.0,
             'skin_type': '알 수 없음'
         }
-
 
 
 def generate_recommendations(scores, username):
