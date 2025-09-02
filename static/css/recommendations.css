@@ -27,19 +27,18 @@ main.centered-content {
     display: inline-block;
     text-decoration: none;
     width: 100%;
-    padding: 15px;
+    padding: 0px;
     font-size: 16px;
     font-weight: bold;
     color: #d47575;
     cursor: pointer;
-    margin-bottom: 20px;
     border: none;
     background: none;
 }
 
 .info-toggle-button:hover {
-    background-color: none;
-    color: rgb(226, 77, 77);
+    text-decoration: underline;
+    color: #d47575; /* 기존 색상 유지 */
 }
 
 /* 로고 이미지 */
@@ -144,7 +143,10 @@ main.centered-content {
 
 .result-button-recommend:hover {
     background: none;
-    color: rgb(235, 136, 136);
+    color: #818181;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
 }
 
 /* 날짜 전체 부분 */
@@ -202,9 +204,9 @@ main.centered-content {
 }
 
 .info-section {
-    /* padding: 25px; */
+    padding: 10px;
     background-color: none;
-    /* border-radius: 15px; */
+    border-radius: 15px;
     margin: 20px 0;
 }
 
@@ -213,22 +215,31 @@ main.centered-content {
 }
 
 /* 구분선 */
-.info-section .qa-section,
-.info-section .tip-section {
-    margin-bottom: 20px;
-    padding-bottom: 20px;
+.info-section .qa-section {
+    padding: 20px;
     border-bottom: 1px solid #e9ecef;
+}
+
+.info-section .tip-section {
+    padding: 20px;
+    border-bottom: 1px solid #e9ecef;
+    margin: 10px 0;
+}
+
+.disclaimer-section {
+    padding: 20px;
+    margin: 10px 0;
 }
 
 .info-section h4 {
     margin-top: 0;
     font-weight: bold;
-    font-size: 24px;
+    font-size: 20px;
 }
 
 .info-section p {
     margin-bottom: 0;
-    font-size: 18px;
+    font-size: 16px;
     color: #3d3d3d;
 }
 
@@ -438,8 +449,8 @@ main.night-theme .tab-button.active:hover {
 }
 
 .primary-product-card {
-    padding: 25px;
-    margin: 20px 20px 0 20px;
+    padding: 0 25px 0 25px;
+    margin: 0px 20px 0 20px;
     position: relative;
 }
 
@@ -545,10 +556,9 @@ main.night-theme .tab-button.active:hover {
 }
 
 .product-link:hover {
-    background: transparent;
-    color: black;
-    /* text-decoration: underline; */
-    opacity: 100%
+    text-decoration: underline;
+    color: rgb(48, 48, 48); /* 기존 색상 유지 */
+    opacity: 100%;
 }
 
 .product-link.small {
@@ -726,13 +736,18 @@ main.night-theme .tab-button.active:hover {
     background-color: rgba(0,0,0,0.6);
 }
 
+.all-result-container{
+    box-shadow: none;
+    margin: 0;
+}
+
 .modal-content {
     background-color: #fefefe;
+    padding: 0;
     margin: 5% auto;
-    padding: 40px;
     border: 1px solid #888;
     width: 60%;
-    max-width: 900px;
+    max-width: 700px;
     border-radius: 10px;
     position: relative;
 }

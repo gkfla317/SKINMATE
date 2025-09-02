@@ -17,43 +17,6 @@
     .segment:first-child { border-left: none; }
     .segment.filled { background-color: #D8AAAA; }
 
-    /* Modal Styles */
-    .modal {
-        display: none; 
-        position: fixed; 
-        z-index: 1000; 
-        left: 0;
-        top: 0;
-        width: 100%; 
-        height: 100%; 
-        overflow: auto; 
-        background-color: rgba(0,0,0,0.6);
-    }
-    .modal-content {
-        background-color: #fefefe;
-        margin: 5% auto;
-        padding: 40px;
-        border: 1px solid #888;
-        width: 80%;
-        max-width: 900px;
-        border-radius: 10px;
-        position: relative;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-    }
-    .close-button {
-        color: #aaa;
-        position: absolute;
-        top: 15px;
-        right: 25px;
-        font-size: 35px;
-        font-weight: bold;
-    }
-    .close-button:hover,
-    .close-button:focus {
-        color: black;
-        text-decoration: none;
-        cursor: pointer;
-    }
 </style>
 {% endblock %}
 
@@ -61,8 +24,8 @@
 
 <div class="prescription-container">
     {% if recommendations and recommendations.user_info %}
-    <button id="toggleInfoBtn" class="info-toggle-button">⚠️안내사항</button>
     <div class="user-info-card">
+         <button id="toggleInfoBtn" class="info-toggle-button">⚠️안내사항</button>
         <img src="{{ url_for('static', filename='images/logo_icon_img.jpg') }}" alt="SKINMATE Logo" class="prescription-logo">
         <h2>&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbspAI 피부 분석 결과&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp</h2>
         <p class="username">&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp<span class="rt_user_name">{{ recommendations.user_info.username }}</span>&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp<span class="rt_user_name_nim">님</span></p>
@@ -84,6 +47,9 @@
         <p class="all-dirtk"><span class="dirtk">연구원</span>&nbsp&nbsp&nbsp&nbsp&nbsp<span class="dirtkdlfma">김피부</span></p>
         <p>경상북도 안동시 경동로 1375</p>
         <p>TEL. 054)123-4567</p>
+        <div style="text-align: center; margin: 40px 0;">
+        <a href="{{ url_for('routines') }}" class="product-link">Next !</a>
+        </div>
     </div>
     {% else %}
     <div class="no-products">
@@ -115,9 +81,6 @@
       </div>
     </div>
 
-    <div style="text-align: center; margin: 40px 0;">
-        <a href="{{ url_for('routines') }}" class="product-link">Click!</a>
-    </div>
     {% endif %}
 </div>
 

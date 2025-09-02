@@ -393,34 +393,48 @@ def api_history():
         graph_wrinkle=graph_wrinkle
     )
 
-def resize_image_if_needed(filepath, max_size_mb=1.5):
-    """이미지 파일이 최대 크기를 초과하면 용량을 줄입니다."""
+def resize_image_if_needed(filepath, max_size_mb=1.0, max_dimension=1024):
+    """이미지 파일이 최대 크기를 초과하면 용량을 줄입니다. 차원과 품질을 모두 조정합니다."""
     max_size_bytes = max_size_mb * 1024 * 1024
-    if os.path.getsize(filepath) > max_size_bytes:
-        try:
-            img = cv2.imread(filepath)
-            if img is None:
-                print(f"이미지 파일을 읽을 수 없습니다: {filepath}")
-                return
+    if os.path.getsize(filepath) <= max_size_bytes:
+        return
 
-            quality = 90
-            
-            while os.path.getsize(filepath) > max_size_bytes and quality > 10:
-                ext = os.path.splitext(filepath)[1].lower()
-                if ext in ['.jpg', '.jpeg']:
-                    params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                elif ext == '.png':
-                    params = [cv2.IMWRITE_PNG_COMPRESSION, max(0, 9 - (90 - quality) // 10)]
-                else:
-                    params = []
-                
-                cv2.imwrite(filepath, img, params)
-                quality -= 5
+    try:
+        img = cv2.imread(filepath)
+        if img is None:
+            print(f"이미지 파일을 읽을 수 없습니다: {filepath}")
+            return
 
-            print(f"이미지 용량 조정 완료: {filepath}")
+        # 1. 차원 줄이기 (가장 효과적)
+        (h, w) = img.shape[:2]
+        if w > max_dimension or h > max_dimension:
+            if w > h:
+                r = max_dimension / float(w)
+                dim = (max_dimension, int(h * r))
+            else:
+                r = max_dimension / float(h)
+                dim = (int(w * r), max_dimension)
+            img = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+            print(f"이미지 차원 축소: {dim}")
 
-        except Exception as e:
-            print(f"이미지 리사이징 중 오류 발생: {e}")
+        # 2. 품질 조정 (JPEG으로 변환하여 저장)
+        quality = 90
+        # 메모리 내에서 이미지를 JPEG 형식으로 인코딩
+        _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+
+        # 용량이 여전히 크면 품질을 낮추며 반복
+        while buffer.nbytes > max_size_bytes and quality > 10:
+            quality -= 5
+            _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        
+        # 최종적으로 압축된 이미지를 원래 파일 경로에 덮어쓰기
+        with open(filepath, 'wb') as f:
+            f.write(buffer)
+
+        print(f"이미지 용량 조정 완료: {filepath} (size: {os.path.getsize(filepath)} bytes)")
+
+    except Exception as e:
+        print(f"이미지 리사이징 중 오류 발생: {e}")
 
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
