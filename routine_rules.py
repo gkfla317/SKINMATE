@@ -45,7 +45,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','그린','녹차','티트리','병풀'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -54,7 +54,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','수분크림','수분 크림'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }],
@@ -73,7 +73,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산','펩타이드','어성초','병'],
+                                    'positive_keywords': ['펩타이드','어성초','병풀'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -129,7 +129,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -138,7 +138,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }],
@@ -187,12 +187,12 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','모공'],
-                                    'positive_keywords': ['히알루론산','그린','녹차','티트리'],
+                                    'positive_keywords': ['그린','녹차','티트리'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
                         {'title': 'STEP 3. 보습 & 보호',
-                        'desc': '안티에이징으로 탄력있는 하루를 시작해요.',
+                        'desc': '가벼운 수분크림으로 하루를 시작해요.',
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','수분크림','수분 크림','젤'],
@@ -271,7 +271,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -280,7 +280,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }],
@@ -357,7 +357,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','각질','모공'],
-                                    'positive_keywords': ['그린','녹차','병풀','어성초','히알루론산'],
+                                    'positive_keywords': ['그린','녹차','병풀','어성초'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -413,7 +413,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','각질','모공'],
-                                    'positive_keywords': ['그린','녹차','병풀','어성초','히알루론산'],
+                                    'positive_keywords': ['그린','녹차','병풀','어성초'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -422,7 +422,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','보습','각질','모공'],
-                                    'positive_keywords': ['히알루론산','병풀','어성초','수분'],
+                                    'positive_keywords': ['병풀','어성초','수분'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }]
@@ -473,7 +473,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -482,7 +482,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','수분크림','수분 크림'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }],
@@ -501,7 +501,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산','펩타이드','어성초','병풀'],
+                                    'positive_keywords': ['펩타이드','어성초','병풀'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -557,7 +557,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -566,7 +566,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','오일','판테놀']
                                 } 
                         }],
@@ -615,7 +615,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너','에센스/앰플/세럼'],
                                     'sub_category_in': ['수분','모공'],
-                                    'positive_keywords': ['히알루론산','그린','녹차','티트리'],
+                                    'positive_keywords': ['그린','녹차','티트리'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -699,7 +699,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','병풀','그린','녹차'],
+                                    'positive_keywords': ['펩타이드','병풀','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -708,7 +708,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분'],
+                                    'positive_keywords': [],
                                     'negative_keywords': ['딥','리치','판테놀']
                                 } 
                         }],
@@ -757,7 +757,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너','에센스/앰플/세럼'],
                                     'sub_category_in': ['수분','모공'],
-                                    'positive_keywords': ['히알루론산','그린','녹차','티트리'],
+                                    'positive_keywords': ['그린','녹차','티트리'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -841,7 +841,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','병풀','그린','녹차'],
+                                    'positive_keywords': ['병풀','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -850,7 +850,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분'],
+                                    'positive_keywords': [],
                                     'negative_keywords': ['딥','리치','판테놀']
                                 } 
                         }],
@@ -901,7 +901,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','어성초','병풀','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','어성초','병풀','펩타이드','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -910,7 +910,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','수분크림','수분 크림'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','어성초','병풀','펩타이드'],
+                                    'positive_keywords': ['어성초','병풀','펩타이드'],
                                     'negative_keywords': ['딥','리치','오일','판테놀','고보습']
                                 } 
                         }],
@@ -985,7 +985,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','그린','녹차'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -1043,7 +1043,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너','에센스/앰플/세럼'],
                                     'sub_category_in': ['수분','모공'],
-                                    'positive_keywords': ['히알루론산','그린','녹차','티트리'],
+                                    'positive_keywords': ['그린','녹차','티트리'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -1127,7 +1127,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','병풀','그린','녹차'],
+                                    'positive_keywords': ['병풀','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -1185,7 +1185,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너','에센스/앰플/세럼'],
                                     'sub_category_in': ['수분','모공'],
-                                    'positive_keywords': ['히알루론산','그린','녹차','티트리'],
+                                    'positive_keywords': ['그린','녹차','티트리'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -1269,7 +1269,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['스킨/토너'],
                                     'sub_category_in': ['수분','보습','모공'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','병풀','그린','녹차'],
+                                    'positive_keywords': ['병풀','그린','녹차'],
                                     'negative_keywords': ['딥','오일','리치']
                                 } 
                         },
@@ -1331,7 +1331,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['에센스/앰플/세럼'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','오일']
                                 } 
                         },
@@ -1340,7 +1340,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','고보습','딥'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드','고보습','딥'],
                                     'negative_keywords': ['딥','고보습','오일']
                                 } 
                         }],
@@ -1415,7 +1415,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['에센스/앰플/세럼'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','오일']
                                 } 
                         },
@@ -1424,7 +1424,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','고보습','딥'],
+                                    'positive_keywords': ['촉촉', '수분','비타민','아데노신','나이아신','펩타이드','고보습','딥'],
                                     'negative_keywords': ['딥','고보습','오일']
                                 } 
                         }],
@@ -1473,7 +1473,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['에센스/앰플/세럼'],
                                     'sub_category_in': ['수분','보습'],
-                                    'positive_keywords': ['히알루론산','비타민','아데노신','나이아신','펩타이드'],
+                                    'positive_keywords': ['비타민','아데노신','나이아신','펩타이드'],
                                     'negative_keywords': ['딥','오일']
                                 } 
                         },
@@ -1482,7 +1482,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['수분','보습'],
-                                    'positive_keywords': ['히알루론산', '촉촉', '수분','비타민','아데노신','나이아신','펩타이드','고보습','딥'],
+                                    'positive_keywords': ['촉촉', '수분','비타민','아데노신','나이아신','펩타이드','고보습','딥'],
                                     'negative_keywords': ['딥','고보습','오일']
                                 } 
                         }],
@@ -2196,7 +2196,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','각질','모공'],
-                                    'positive_keywords': ['히알루론산','병풀','어성초'],
+                                    'positive_keywords': [],
                                     'negative_keywords': ['오일']
                                 } 
                         }],
@@ -2224,7 +2224,7 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','각질','모공'],
-                                    'positive_keywords': ['히알루론산','병풀','어성초'],
+                                    'positive_keywords': ['병풀','어성초'],
                                     'negative_keywords': []
                                 } 
                         }],
@@ -2280,8 +2280,8 @@ ROUTINE_RULES = {
                         'query': {
                                     'middle_category_in': ['크림'],
                                     'sub_category_in': ['안티에이징','리페어','수분','보습','각질','모공'],
-                                    'positive_keywords': ['히알루론산','병풀','어성초'],
-                                    'negative_keywords': ['오일']
+                                    'positive_keywords': [],
+                                    'negative_keywords': ['오일','딥','리치']
                                 } 
                         }],
                 },

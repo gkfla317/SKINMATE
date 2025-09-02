@@ -280,16 +280,31 @@ def predict_wrinkle_from_tflite(image_filepath):
 def get_skin_scores(filepath):
     """Vertex AI API와 TFLite 모델을 사용하여 피부 점수를 계산합니다."""
     try:
-        skin_type_from_api = predict_skin_type_from_vertex_ai(filepath)
+        # 1. Vertex AI로부터 영어로 된 피부 타입을 받습니다.
+        skin_type_english = predict_skin_type_from_vertex_ai(filepath)
+
+        # 2. 영어 타입을 한국어로 변환합니다.
+        translation_map = {
+            'Normal': '중성',
+            'Dry': '건성',
+            'CombinationDry': '복합 건성',
+            'CombinationOily': '복합 지성',
+            'Oily': '지성'
+        }
+        # .get()을 사용하여, 만약 맵에 없는 새로운 타입이 반환되더라도 오류 없이 원래 영어 타입을 사용합니다.
+        skin_type_korean = translation_map.get(skin_type_english, skin_type_english)
+
+        # 3. TFLite 모델들로부터 점수를 계산합니다.
         moisture_score_from_model = predict_moisture_from_tflite(filepath)
         elasticity_score_from_model = predict_elasticity_from_tflite(filepath)
         wrinkle_score_from_model = predict_wrinkle_from_tflite(filepath)
 
+        # 4. 최종 결과를 조합합니다.
         scores = {
             'moisture': moisture_score_from_model,
             'elasticity': elasticity_score_from_model,
             'wrinkle': wrinkle_score_from_model,
-            'skin_type': skin_type_from_api
+            'skin_type': skin_type_korean # 한국어 피부 타입으로 저장
         }
         return scores
 
