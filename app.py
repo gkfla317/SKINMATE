@@ -434,12 +434,30 @@ def history():
         return redirect(url_for('login'))
 
     db = get_db()
-    all_analyses = db.execute(
+    all_analyses_rows = db.execute(
         'SELECT * FROM analyses WHERE user_id = ? ORDER BY analysis_timestamp DESC',
         (session['user_id'],)
     ).fetchall()
     
-    return render_template('history.html', analyses=all_analyses)
+    processed_analyses = []
+    for analysis_row in all_analyses_rows:
+        analysis = dict(analysis_row)
+        
+        scores = {}
+        try:
+            if analysis['scores_json']:
+                scores = json.loads(analysis['scores_json']) 
+        except (json.JSONDecodeError, TypeError):
+            pass 
+        
+        concern_scores = {k: v for k, v in scores.items() if k != 'skin_type' and isinstance(v, (int, float))}
+        main_score = sum(concern_scores.values()) / len(concern_scores) if concern_scores else 0
+        
+        analysis['main_score'] = main_score
+        
+        processed_analyses.append(analysis)
+        
+    return render_template('history.html', analyses=processed_analyses)    
 
 @app.route('/skin_diary')
 def skin_diary():
