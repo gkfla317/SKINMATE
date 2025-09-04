@@ -1,0 +1,6 @@
+{
+    "DB_USER": "postgres",
+    "DB_PASSWORD": "Rudrnreogkrry!1",
+    "DB_NAME": "skinmate_db",
+    "INSTANCE_CONNECTION_NAME": "andong03:us-central1:skinmate-db"
+}

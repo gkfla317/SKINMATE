@@ -17,7 +17,9 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-bottom: 10px;
+            padding-bottom: 4px;
+            border-bottom: 4px solid #ebbbbbff;
+
         }
         .edit-controls .left {
             display: flex;
@@ -73,11 +75,14 @@
                     {% endif %}
                     <div class="history-details">
                         <p class="timestamp">{{ analysis.analysis_timestamp.strftime('%Y년 %m월 %d일 %H:%M') }}</p>
-                        <h3>피부 타입: <span style="color: #F66F6F;">{{ analysis.skin_type }}</span></h3>
-                        <p><b>주요 고민:</b> 
-                            {% set concerns = analysis.concerns_json | fromjson %}
-                            {{ concerns | map(attribute='name') | join(', ') }}
-                        </p>
+                        <h3 class="total-score">• Total Score: {{ analysis.main_score | round | int }}점</h3>
+                        <h3 class="history-skintype">• Skintype: {{ analysis.skin_type }}</h3>
+                        <div class="concerns-with-icons">
+                            {% set scores = analysis.scores_json | fromjson %}
+                            <span class="score-item">수분 :<img src="{{ url_for('static', filename='images/' + get_face_icon(scores.moisture)) }}" alt="수분 점수 아이콘" class="score-face-icon"></span>
+                            <span class="score-item">탄력 :<img src="{{ url_for('static', filename='images/' + get_face_icon(scores.elasticity)) }}" alt="탄력 점수 아이콘" class="score-face-icon"></span>
+                            <span class="score-item">주름 :<img src="{{ url_for('static', filename='images/' + get_face_icon(scores.wrinkle)) }}" alt="주름 점수 아이콘" class="score-face-icon"></span>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}

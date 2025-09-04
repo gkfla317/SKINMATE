@@ -4,20 +4,6 @@
 
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/recommendations.css') }}">
-<style>
-    /* Chart Styles */
-    .chart-container { display: flex; justify-content: center; align-items: center; padding: 20px; }
-    .chart-item { flex: 1; padding: 10px; }
-    .flex-spacer { flex: 0.5; }
-    #segmented-bars-container { display: flex; flex-direction: column; }
-    .bar-container { display: flex; align-items: center; margin-bottom: 20px; width: 100%; }
-    .bar-label { width: 50px; font-weight: bold; font-size: 16px; word-break: keep-all; white-space: nowrap; }
-    .segmented-bar { display: flex; width: 100%; flex-grow: 1; height: 25px; border-radius: 5px; overflow: hidden; border: 1px solid #e0e0e0; }
-    .segment { flex: 1; background-color: #f0f0f0; border-left: 1px solid #fff; }
-    .segment:first-child { border-left: none; }
-    .segment.filled { background-color: #D8AAAA; }
-
-</style>
 {% endblock %}
 
 {% block content %}
@@ -45,9 +31,9 @@
         </p>
         <p class="drugstore-name">&nbsp&nbsp&nbsp스킨메이트연구소&nbsp&nbsp&nbsp</p>
         <p class="all-dirtk"><span class="dirtk">연구원</span>&nbsp&nbsp&nbsp&nbsp&nbsp<span class="dirtkdlfma">김피부</span></p>
-        <p>경상북도 안동시 경동로 1375</p>
-        <p>TEL. 054)123-4567</p>
-        <div style="text-align: center; margin: 40px 0;">
+        <p class="address-name">경상북도 안동시 경동로 1375</p>
+        <p class="phone-num">TEL. 054)123-4567</p>
+        <div class="next-button">
         <a href="{{ url_for('routines') }}" class="product-link">Next !</a>
         </div>
     </div>

@@ -15,7 +15,8 @@ main.centered-content {
 .user-info-card {
     color: #D8AAAA;
     background: #ffffff;
-    padding: 30px;
+    /* 수정-0903 */
+    padding: 20px 30px 15px 30px;    
     border-radius: 0;
     margin-bottom: 30px;
     text-align: center;
@@ -114,7 +115,7 @@ main.centered-content {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 40px auto;
+    margin: 0 auto 0px auto;
 }
 
 .score-item {
@@ -152,6 +153,7 @@ main.centered-content {
 /* 날짜 전체 부분 */
 .prescription-date {
     margin-bottom: 0;
+    margin-top: 56px;
 }
 
 /* 날짜 숫자 부분 */
@@ -201,6 +203,11 @@ main.centered-content {
     font-size: 18px;
     letter-spacing: 30px;
     font-weight: 600;
+}
+
+.address-name,
+.phone-num {
+    margin: 0px;
 }
 
 .info-section {
@@ -552,8 +559,11 @@ main.night-theme .tab-button.active:hover {
     font-size: 18px;
     font-weight: 500;
     transition: all 0.2s ease;
-    opacity: 50%;
+    /* opacity: 50%;/ */
 }
+
+
+
 
 .product-link:hover {
     text-decoration: underline;
@@ -663,64 +673,77 @@ main.night-theme .tab-button.active:hover {
 }
 
 /* Chart Styles */
-.chart-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 20px;
+.chart-container { 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    padding: 20px; 
+    padding-bottom: 0px;
 }
 
 .chart-item {
+    padding: 10px; 
+    box-shadow: none;
+    }
+
+#gauge-chart {
     flex: 1;
-    padding: 10px;
+    padding-left: 30px !important;
 }
 
-.flex-spacer {
-    flex: 0.5;
+#segmented-bars-container { 
+    flex: 2;
+}
+    
+.flex-spacer { 
+    flex: 0.2; 
 }
 
-#segmented-bars-container {
-    display: flex;
-    flex-direction: column;
+#segmented-bars-container { 
+    display: flex; 
+    flex-direction: column; 
 }
 
-.bar-container {
-    display: flex;
-    align-items: center;
-    margin-bottom: 20px;
-    width: 100%;
+.bar-container { 
+    display: flex; 
+    align-items: center; 
+    margin-bottom: 20px; 
+    width: 100%; }
+
+.bar-label { 
+    width: 50px; 
+    font-weight: bold; 
+    font-size: 16px; 
+    word-break: keep-all; 
+    white-space: nowrap; 
 }
 
-.bar-label {
-    width: 50px;
-    font-weight: bold;
-    font-size: 16px;
-    word-break: keep-all;
-    white-space: nowrap;
+.segmented-bar { 
+    display: flex; 
+    width: 100%; 
+    flex-grow: 1; 
+    height: 25px; 
+    border-radius: 5px; 
+    overflow: hidden; 
+    border: 1px solid #e0e0e0; 
 }
 
-.segment-bar {
-    display: flex;
-    width: 100%;
-    flex-grow: 1;
-    height: 25px;
-    border-radius: 5px;
-    overflow: hidden;
-    border: 1px solid #fff;
+.segment { flex: 1; 
+    background-color: #f0f0f0; 
+    border-left: 1px solid #fff; 
 }
 
-.segment {
-    flex: 1;
-    background-color: #f0f0f0;
-    border-left: 1px solid #fff;
+.segment:first-child { 
+    border-left: none; 
 }
 
-.segment:first-child {
-    border-left: none;
+.segment.filled { 
+    background-color: #D8AAAA; 
 }
 
-.segment.filled {
-    background-color: #D8AAAA;
+.next-button .product-link { 
+    color: black !important; 
+    padding-top: 26px;
 }
 
 /* Modal Styles */
@@ -750,6 +773,12 @@ main.night-theme .tab-button.active:hover {
     max-width: 700px;
     border-radius: 10px;
     position: relative;
+}
+
+.result-description{
+    margin-top: 0;
+    padding: 0;
+    text-align: center;
 }
 
 .close-button {

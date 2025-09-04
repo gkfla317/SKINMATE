@@ -1,6 +1,6 @@
 /* General Container Styling */
 .history-container {
-    width: 600px;
+    width: 800px;
     height: 710px;
     margin: auto;
     padding: 2rem 2rem 0 2rem;
@@ -101,7 +101,7 @@ h2 {
     display: flex;
     align-items: center;
     gap: 20px;
-    padding: 1.5rem;
+    padding: 2rem;
     border-bottom: 1px solid #eee;
     transition: background-color 0.3s;
 }
@@ -115,11 +115,12 @@ h2 {
 }
 
 .history-item img {
-    width: 100px;
-    height: 100px;
+    width: 140px;
+    height: 140px;
     border-radius: 8px;
     object-fit: cover;
     box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    margin-left: 1.2rem;
 }
 
 .history-details {
@@ -128,16 +129,32 @@ h2 {
 
 .history-details .timestamp {
     font-size: 0.9rem;
-    color: #888;
-    margin-bottom: 0.5rem;
+    color: #292929;
+    margin-top: 0;
+    margin-bottom: 1.2rem;
+    font-weight: 600;
 }
 
-.history-details h3 {
-    font-size: 1.2rem;
-    font-weight: 600;
-    margin-bottom: 0.75rem;
-    color: #333;
+.total-score {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0.8rem auto 0.4rem auto;
+    color: #2e2e2e;
 }
+
+.history-skintype {
+    font-size: 1rem;
+    font-weight: 500;
+    margin: 0rem auto 1.2rem auto;
+    color: #2e2e2e;
+}
+
+/* .history-details h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0.45rem;
+    color: #333;
+} */
 
 .history-details p {
     font-size: 1rem;
@@ -145,8 +162,19 @@ h2 {
     line-height: 1.5;
 }
 
-.history-details p b {
-    color: #333;
+/* Icon Style for History Page */
+.score-item {
+    margin: 0 10px;
+    font-size: 1rem;
+    color: #555;
+    font-weight: 500;
+}
+
+.history-item .score-face-icon {
+    width: 30px;
+    height: 30px;
+    vertical-align: middle;
+    box-shadow: none;
 }
 
 /* No history message */
@@ -157,7 +185,7 @@ h2 {
 }
 
 .edit-mode-item {
-    margin-left: 36px;
+    margin-left: 3px;
 }
 
 .delete-button {
@@ -176,6 +204,7 @@ h2 {
     padding: 0;
     font-size: 16px;
     cursor: pointer;
+    box-shadow: none;
 }
 
 .delete-button:hover, .edit-button:hover, .select-all-button:hover {
