@@ -1,0 +1,99 @@
+body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+}
+
+img {
+    max-width: 300px;
+    height: auto;
+    display: block;
+    z-index: 1;
+}
+
+.image-container {
+    position: relative;
+}
+
+.image-container > a {
+    position: absolute;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    text-decoration: none;
+    z-index: 10;
+}
+
+.name {
+    font-size: 16px;
+}
+
+.content {
+    font-size: 10px;
+}
+
+.icon-grid {
+    position: absolute;
+    top: 18%;
+    left: 51%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    display: flex;
+    justify-content: center; /* Center the group of icons */
+    align-items: center;
+    gap: 12px; /* Add 10px of space between each icon */
+    z-index: 10;
+}
+
+.icon-grid a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: black;
+    flex-shrink: 0;
+}
+
+.icon-grid span {
+    font-size: 10px;
+}
+
+.icon-grid img {
+    width: 34px;
+    height: auto;
+    display: block;
+}
+
+.icon-grid-2 {
+    position: absolute;
+    top: 32%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    z-index: 10;
+}
+
+.icon-grid-2 a {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-decoration: none;
+    color: black;
+}
+
+.icon-grid-2 span {
+    font-size: 10px;
+}
+
+.icon-grid-2 img {
+    width: 38px;
+    height: auto;
+    display: block;
+}
